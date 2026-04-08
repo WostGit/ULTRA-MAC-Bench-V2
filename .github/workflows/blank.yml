@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V24-FORENSIC-0.5B-3B
+name: HYPER-MAC-BENCH-V25-FRONTIER-TRAPS
 on: 
   workflow_dispatch:
     inputs:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich
-      - name: 🚀 Launching 0.5B vs 3B Forensic Stress Test
+      - name: 🚀 Launching Frontier Logic Traps
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -31,54 +31,47 @@ jobs:
 
           TESTS = [
               {
-                  "id": "THE_APPLE_REFRESH",
-                  "name": "The Intentional Distraction",
-                  "prompt": "I have 5 apples. You take away 3 apples. Then I give you 1 more. How many apples do YOU have now? Think step-by-step. End with 'Result: <number>'.",
-                  "validator": lambda x: "Result: 4" in x
+                  "id": "MUTUAL_RECURSION_TRAP",
+                  "name": "The Recursive Pointer Swap",
+                  "prompt": "Q: box_a = [1]; box_b = [2]. box_a.append(box_b). box_b.append(box_a). What is the value of box_a[1][1][0]? Think step-by-step. End with 'Result: <number>'.",
+                  "validator": lambda x: "Result: 1" in x
               },
               {
-                  "id": "REVERSE_ALIAS",
-                  "name": "Dynamic Object Tracking",
-                  "prompt": "x = [1]. y = x. x = [2]. y.append(3). What is x and what is y? Think step-by-step. End with 'Result: x=<list>, y=<list>'.",
-                  "validator": lambda x: "x=[2]" in x.replace(" ", "") and "y=[1,3]" in x.replace(" ", "")
+                  "id": "TEMPORAL_WORMHOLE",
+                  "name": "Non-Euclidean Clock",
+                  "prompt": "Q: On a planet where an hour is 100 minutes, the time is 09:80. What is the time in 45 minutes? Think step-by-step. End with 'Time: <HH:MM>'.",
+                  "validator": lambda x: "10:25" in x
               },
               {
-                  "id": "TIME_ROLLOVER_COMPLEX",
-                  "name": "Multi-Hour Rollover",
-                  "prompt": "A train leaves at 21:30 and the trip lasts 4 hours and 45 minutes. What time does it arrive? Think step-by-step. End with 'Time: <HH:MM>'.",
-                  "validator": lambda x: "02:15" in x
-              },
-              {
-                  "id": "NEGATION_LOGIC",
-                  "name": "Triple Negation",
-                  "prompt": "Is it true that it is not false that the statement 'the sky is not blue' is false? Think step-by-step. End with 'Result: <True/False>'.",
-                  "validator": lambda x: "Result: True" in x
+                  "id": "LOGIC_INVERSION",
+                  "name": "Constraint Reversal",
+                  "prompt": "Q: In a language, 'NOT' means 'YES' and 'YES' means 'NOT'. Does 'NOT NOT YES' mean 'YES'? Think step-by-step. End with 'Result: <YES/NOT>'.",
+                  "validator": lambda x: "Result: NOT" in x
               }
           ]
 
           def run_benchmark(model_id, role):
-              console.rule(f"[bold white on green] 🔬 FORENSIC MONITOR: {role} [/]")
+              console.rule(f"[bold white on blue] 🕵️ {role} FORENSICS [/]")
               model, tokenizer = load(model_id)
               
               for t in TESTS:
                   messages = [
-                      {"role": "system", "content": "You are a forensic logic engine. Show all intermediate steps of your calculation. Be extremely verbose."},
+                      {"role": "system", "content": "You are a state-tracking logic machine. Break every complex object into its atomic components before concluding."},
                       {"role": "user", "content": t["prompt"]}
                   ]
                   prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                   
-                  console.print(f"\n[bold yellow]PROMPT: {t['name']}[/]")
+                  console.print(f"\n[bold yellow]TASK: {t['name']}[/]")
                   start = time.perf_counter()
-                  # Extreme max_tokens to see the "hallucination trail"
-                  output = generate(model, tokenizer, prompt=prompt, max_tokens=700, sampler=make_sampler(temp=0.0))
+                  output = generate(model, tokenizer, prompt=prompt, max_tokens=800, sampler=make_sampler(temp=0.0))
                   dur = time.perf_counter() - start
                   
                   success = t["validator"](output)
-                  color = "bright_green" if success else "bright_red"
+                  color = "green" if success else "red"
                   
-                  console.print(Panel(output, title=f"{role} Monologue", border_style=color))
+                  console.print(Panel(output, title=f"{role} Reasoning", border_style=color))
                   console.print(f"TPS: {len(tokenizer.encode(output))/dur:.2f} | PASS: {success}")
-                  console.print("=" * 60)
+                  console.print("-" * 60)
 
           run_benchmark("${{ inputs.model_student_hf }}", "STUDENT (0.5B)")
           mx.clear_cache()
