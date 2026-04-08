@@ -1,11 +1,11 @@
-name: HYPER-MAC-BENCH-V29-AGENTIC-ARCHITECT
-on: 
+name: HYPER-MAC-BENCH-V30-AGENTIC-STATE-RECOVERY
+on:
   workflow_dispatch:
     inputs:
       model_teacher_hf:
-        default: 'mlx-community/Qwen2.5-Coder-3B-Instruct-8bit'
+        default: 'mlx-community/Qwen2.5-Coder-7B-Instruct-8bit' # Stepping up to 7B for actual reasoning
       model_student_hf:
-        default: 'mlx-community/Qwen2.5-Coder-0.5B-Instruct-8bit'
+        default: 'mlx-community/Qwen2.5-Coder-3B-Instruct-8bit'
 
 jobs:
   benchmark:
@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich
-      - name: 🚀 Launching Agentic Moat Gauntlet
+      - name: 🚀 Launching The Entropy Engine
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -27,54 +27,55 @@ jobs:
 
           console = Console()
 
+          # These tests focus on "The Unknowns": 
+          # 1. MRO Hard-Failure Recognition
+          # 2. Reconciling Docs vs. Reality (Semantic Plumbing)
+          # 3. Memory Leak Prediction (Long-horizon state)
           TESTS = [
               {
-                  "id": "CIRCULAR_REFERENCE_GC",
-                  "name": "Garbage Collection & Circularity",
-                  "prompt": "Code: 'a = {}; b = {}; a[\"ref\"] = b; b[\"ref\"] = a; del a; print(b[\"ref\"][\"ref\"] == b)'. \nINSTRUCTION: Trace the reference count and object identity. Does this print True? Explain why 'b' still holds the deleted 'a'. End with 'Result: <True/False>'.",
-                  "validator": lambda x: "Result: True" in x
+                  "id": "MRO_HARD_FAILURE",
+                  "name": "Intentional MRO Violation",
+                  "prompt": "TASK: Write a Python class hierarchy (A, B, C) where 'class D(A, B)' and 'class E(B, A)' exist, then 'class F(D, E)' is defined. \nQUESTION: Will Python allow this? If it throws a TypeError, explain why C3 linearization fails here. If not, provide the MRO. \nREQUIRED: End with 'Final Verdict: <Error/Success>'.",
+                  "validator": lambda x: "Final Verdict: Error" in x or "TypeError" in x
               },
               {
-                  "id": "NESTED_CLOSURE_STATE",
-                  "name": "Triple-Nested Scope Resolution",
-                  "prompt": "Code: 'x=0; def f1(): x=1; def f2(): nonlocal x; x=2; def f3(): return x; return f3; return f2; g = f1()(); print(g())'. \nINSTRUCTION: Trace the 'nonlocal' jump across 3 levels. What is the value of x in f3? End with 'Result: <number>'.",
-                  "validator": lambda x: "Result: 2" in x
+                  "id": "SEMANTIC_CONFLICT",
+                  "name": "Doc vs. Reality Reconciliation",
+                  "prompt": "SCENARIO: A library's README says 'connect(port=8080) is deprecated, use link(addr)'. However, the source code shows 'link(addr)' is just a pass-through that calls 'connect(port=8080)'. \nQUESTION: You are an agent tasked with 'optimizing for stability'. Which function do you call and why? \nREQUIRED: End with 'Choice: <Function Name>'.",
+                  "validator": lambda x: "Choice: connect" in x or "Choice: connect(port=8080)" in x
               },
               {
-                  "id": "THEORY_OF_MIND_LOGIC",
-                  "name": "3rd-Order Belief Tracking",
-                  "prompt": "Scenario: Alice puts a ball in the Red Box. Bob moves it to the Blue Box while Alice is away. Charlie sees Bob move it, but Alice doesn't know Charlie is there. \nQuestion: Where does Charlie think Alice will look for the ball? End with 'Location: <Box Color>'.",
-                  "validator": lambda x: "Location: Red" in x or "Red Box" in x
-              },
-              {
-                  "id": "PYTHON_INTERNAL_MRO",
-                  "name": "Diamond Inheritance (C3)",
-                  "prompt": "Code: 'class Base: v=0; class A(Base): v=1; class B(Base): v=2; class C(A, B): pass'. \nINSTRUCTION: Trace the MRO carefully. What is C.v? End with 'Result: <number>'.",
-                  "validator": lambda x: "Result: 1" in x
-              },
-              {
-                  "id": "COMPILER_ITERATION",
-                  "name": "Error-Feedback Simulation",
-                  "prompt": "I write 'print(\"hello\" + 5)'. The compiler throws a TypeError. Rewrite the code using a single built-in function to fix it so it prints 'hello5'. End with 'Code: <line>'.",
-                  "validator": lambda x: "str(5)" in x
+                  "id": "CONTEXT_POISONING",
+                  "name": "Stateful Shadow Variables",
+                  "prompt": "CODE: 'x = 10; def outer(): x = 20; def inner(): global x; x = 30; inner(); return x; print(outer(), x)'. \nTASK: Trace the 'global' keyword's impact on the 'outer' scope vs 'module' scope. What are the two numbers printed? \nREQUIRED: End with 'Output: <num1, num2>'.",
+                  "validator": lambda x: "Output: 20, 30" in x
               }
           ]
 
           def run_benchmark(model_id, role):
-              console.rule(f"[bold white on blue] 🛰️ AGENTIC MOAT: {role} [/]")
+              console.rule(f"[bold white on blue] 🛰️ AGENTIC STATE ENGINE: {role} [/]")
+              # Using a higher temperature for the first pass to see if it catches its own errors
               model, tokenizer = load(model_id)
+              
               for t in TESTS:
-                  messages = [{"role": "system", "content": "You are a Stateful Execution Engine. Track every memory address and belief state change."},
-                              {"role": "user", "content": t["prompt"]}]
+                  messages = [
+                      {"role": "system", "content": "You are a Senior Systems Architect. You do not trust documentation; you trust execution traces. Think step-by-step."},
+                      {"role": "user", "content": t["prompt"]}
+                  ]
                   prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                  console.print(f"\n[bold green]TASK: {t['name']}[/]")
-                  output = generate(model, tokenizer, prompt=prompt, max_tokens=800, sampler=make_sampler(temp=0.0))
+                  
+                  console.print(f"\n[bold yellow]STRESS TEST: {t['name']}[/]")
+                  
+                  # We use a slight temp to allow for "thought" variance
+                  output = generate(model, tokenizer, prompt=prompt, max_tokens=1000, sampler=make_sampler(temp=0.1))
+                  
                   success = t["validator"](output)
-                  console.print(Panel(output, title=f"{role} Trace", border_style="green" if success else "red"))
-                  console.print(f"PASS: {success}")
-          
-          run_benchmark("${{ inputs.model_student_hf }}", "STUDENT (0.5B)")
+                  color = "green" if success else "red"
+                  console.print(Panel(output, title=f"{role} Reasoning Path", border_style=color))
+                  console.print(f"RESULT: {'✅ PASSED' if success else '❌ FAILED'}")
+
+          run_benchmark("${{ inputs.model_student_hf }}", "STUDENT (3B)")
           mx.clear_cache()
-          run_benchmark("${{ inputs.model_teacher_hf }}", "TEACHER (3B)")
+          run_benchmark("${{ inputs.model_teacher_hf }}", "TEACHER (7B)")
           EOF
           python hyper_engine.py
