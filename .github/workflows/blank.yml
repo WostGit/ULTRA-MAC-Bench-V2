@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V27-DEEP-STATE-AGENTIC
+name: HYPER-MAC-BENCH-V28-MENTAL-SANDBOX
 on: 
   workflow_dispatch:
     inputs:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich
-      - name: 🚀 Launching Deep State Agentic Forensics
+      - name: 🚀 Launching Mental Sandbox Forensics
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -31,60 +31,48 @@ jobs:
 
           TESTS = [
               {
-                  "id": "MRO_INHERITANCE",
-                  "name": "Method Resolution Order (MRO)",
-                  "prompt": "Code: 'class A: x=1; class B(A): pass; class C(A): x=2; class D(B, C): pass'. What is D.x? Trace the MRO carefully. Think step-by-step. End with 'Result: <number>'.",
-                  "validator": lambda x: "Result: 2" in x
-              },
-              {
-                  "id": "STACK_UNWIND",
-                  "name": "Nested Try-Finally Persistence",
-                  "prompt": "Code: 'v=0; try: v=1; raise Exception(); finally: v=2'. If I catch the exception, what is the value of v? Think step-by-step about the execution stack. End with 'Result: <number>'.",
-                  "validator": lambda x: "Result: 2" in x
-              },
-              {
-                  "id": "NAMESPACE_SHADOW",
-                  "name": "Global/Local Shadowing",
-                  "prompt": "Code: 'x=1; def f(x): global x; x=2; f(3); print(x)'. This code raises a SyntaxError. Why? Explain the conflict between the parameter x and the global x. End with 'Status: Error'.",
-                  "validator": lambda x: "Status: Error" in x or "SyntaxError" in x
-              },
-              {
-                  "id": "TYPE_HINT_CONFLICT",
-                  "name": "Metadata vs Implementation",
-                  "prompt": "Code: 'def g() -> int: return \"10\"; x = g() + g()'. In Python, what is the value of x? Ignore the type hint; follow the runtime behavior. Think step-by-step. End with 'Result: <value>'.",
-                  "validator": lambda x: "Result: 1010" in x.replace('"', "")
-              },
-              {
-                  "id": "DUNDER_MAGIC",
-                  "name": "Dynamic Attr (__getattr__)",
-                  "prompt": "Code: 'class P: def __getattr__(self, name): return 42; obj=P(); print(hasattr(obj, \"secret\"))'. Does this print True or False? Explain how hasattr interacts with __getattr__. End with 'Result: <True/False>'.",
+                  "id": "SANDBOX_DUNDER",
+                  "name": "Forced-State Dunder Tracking",
+                  "prompt": "Code: 'class P: def __getattr__(self, n): return 42; obj=P(); print(hasattr(obj, \"x\"))'. \nINSTRUCTION: Before answering, create a 'Memory Table' with columns [Line, Variable, Object Type, Value]. Then, trace the hasattr() internal CPython call. End with 'Result: <True/False>'.",
                   "validator": lambda x: "Result: True" in x
+              },
+              {
+                  "id": "SANDBOX_LATE_BINDING",
+                  "name": "Late-Binding Reference Sandbox",
+                  "prompt": "Code: 'l=[1]; add=lambda: l.append(2); l=[3]; add()'. \nINSTRUCTION: Trace the Heap. Specifically, track what object the name 'l' points to at the time 'add' is defined vs when it is called. End with 'Result: l=<list>'.",
+                  "validator": lambda x: "Result: l=[3, 2]" in x.replace(" ", "") or "Result: l=[3,2]" in x.replace(" ", "")
+              },
+              {
+                  "id": "SANDBOX_MRO_COMPLEX",
+                  "name": "C3 Linearization Sandbox",
+                  "prompt": "Code: 'class O: x=0; class A(O): x=1; class B(O): x=2; class C(A, B): pass'. \nINSTRUCTION: List the MRO search order as a list [C, ?, ?, ?, O]. Determine C.x. End with 'Result: <number>'.",
+                  "validator": lambda x: "Result: 1" in x and "[C, A, B, O]" in x.replace(" ", "")
               }
           ]
 
           def run_benchmark(model_id, role):
-              console.rule(f"[bold white on red] 🛰️ DEEP-STATE PROBE: {role} [/]")
+              console.rule(f"[bold white on yellow] 🏗️ SANDBOX AUDIT: {role} [/]")
               model, tokenizer = load(model_id)
               
               for t in TESTS:
                   messages = [
-                      {"role": "system", "content": "You are a Senior Python Architect. You must perform a line-by-line memory and stack trace. Do not guess based on common patterns. Be ultra-verbose."},
+                      {"role": "system", "content": "You are a CPython Virtual Machine. You do not predict text; you execute bytecode and manage a Heap/Stack table. You must be ultra-verbose."},
                       {"role": "user", "content": t["prompt"]}
                   ]
                   prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                   
-                  console.print(f"\n[bold cyan]TASK: {t['name']}[/]")
+                  console.print(f"\n[bold magenta]SANDBOX TASK: {t['name']}[/]")
                   start = time.perf_counter()
-                  # Extreme verbosity for forensic auditing
-                  output = generate(model, tokenizer, prompt=prompt, max_tokens=900, sampler=make_sampler(temp=0.0))
+                  # High token limit to allow for the table generation
+                  output = generate(model, tokenizer, prompt=prompt, max_tokens=1000, sampler=make_sampler(temp=0.0))
                   dur = time.perf_counter() - start
                   
                   success = t["validator"](output)
                   color = "green" if success else "red"
                   
-                  console.print(Panel(output, title=f"Execution Trace - {role}", border_style=color))
+                  console.print(Panel(output, title=f"Sandbox Trace - {role}", border_style=color))
                   console.print(f"TPS: {len(tokenizer.encode(output))/dur:.2f} | SUCCESS: {success}")
-                  console.print("=" * 60)
+                  console.print("=" * 70)
 
           run_benchmark("${{ inputs.model_student_hf }}", "STUDENT (0.5B)")
           mx.clear_cache()
