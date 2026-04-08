@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V5
+name: HYPER-MAC-BENCH-V6
 on:
   workflow_dispatch:
     inputs:
@@ -14,88 +14,89 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
-        
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich psutil
-
-      - name: 🚀 Launching "God-Mode" Engine
+      - name: 🚀 Launching God-Mode V6
         shell: bash
         env:
           HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
-          # Silences the unauthenticated request warning
           HF_TOKEN: "hf_noop" 
         run: |
           cat > hyper_engine.py << 'EOF'
           import mlx.core as mx
           from mlx_lm import load, generate
           from rich.console import Console
-          from rich.live import Live
+          from rich.table import Table
           from rich.panel import Panel
-          from rich.text import Text
-          import time, subprocess, sys, psutil
+          import time, subprocess, psutil, os
 
           console = Console()
 
-          def get_mac_details():
-              # Grab the actual CPU name (e.g., Apple M4 Pro)
-              brand = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"]).decode().strip()
-              cores = subprocess.check_output(["sysctl", "-n", "hw.ncpu"]).decode().strip()
-              return f"{brand} | {cores} Cores"
+          def get_telemetry():
+              # Get memory pressure (macOS specific)
+              try:
+                  pressure = subprocess.check_output(["sysctl", "-n", "kern.memo_status_level"]).decode().strip()
+                  # Thermal state: 0=nominal, 1=fair, 2=serious, 3=critical
+                  thermal = subprocess.check_output(["sysctl", "-n", "machdep.xcpu.thermal_level"]).decode().strip()
+              except:
+                  pressure, thermal = "N/A", "N/A"
+              mem = psutil.virtual_memory()
+              return f"RAM: {mem.percent}% | Pressure: {pressure} | Thermal: {thermal}"
 
           class GodEngine:
               def __init__(self, model_id, role):
                   self.role = role
-                  self.model_id = model_id
-                  console.rule(f"[bold gold1]🌀 INITIALIZING {role.upper()} CORE[/]")
+                  console.rule(f"[bold red]💥 AWAKENING {role.upper()} CORE[/]")
+                  console.log(f"[dim]Telemetry Pre-Load: {get_telemetry()}[/]")
                   
                   start = time.perf_counter()
-                  # Loading with verbose=False to keep the boot sequence clean
                   self.model, self.tokenizer = load(model_id)
                   self.load_time = time.perf_counter() - start
-                  console.log(f"[bold green]✓[/] Core Sync Complete ({self.load_time:.2f}s)")
+                  console.log(f"[bold green]✓[/] Neural Weights Mapped in {self.load_time:.2f}s")
 
-              def stream_generate(self, prompt):
-                  console.print(f"\n[bold cyan]📥 PROMPT >[/] [dim]{prompt}[/]")
-                  console.print(f"[bold magenta]📤 {self.role} STREAMING >[/]")
+              def execute(self, prompt):
+                  console.print(Panel(f"[bold cyan]INPUT >[/] {prompt}", title="📥 Buffer"))
+                  console.print(f"[bold yellow]⚡ GENERATING...[/]")
                   
-                  full_response = ""
-                  start_gen = time.perf_counter()
-                  
-                  # We use a custom loop logic for 'Ultra-Verbosity' streaming
-                  # This mimics the 'generate' function but gives us hook-ins
                   tic = time.perf_counter()
+                  # Using verbose=True to get the built-in MLX streaming speed
+                  res = generate(self.model, self.tokenizer, prompt=prompt, max_tokens=400, verbose=True)
+                  toc = time.perf_counter()
                   
-                  # Standard MLX generate is fast, but we'll wrap it in a Panel 
-                  # that updates every few tokens
-                  response = generate(
-                      self.model, self.tokenizer, 
-                      prompt=prompt, 
-                      max_tokens=512, 
-                      verbose=True # This streams to stdout naturally
-                  )
+                  duration = toc - tic
+                  tokens = len(self.tokenizer.encode(res))
+                  tps = tokens / duration
                   
-                  duration = time.perf_counter() - tic
-                  tokens = len(self.tokenizer.encode(response))
-                  return {"tps": tokens/duration, "time": duration}
+                  console.print(f"\n[bold magenta]📊 METRICS >[/] {tps:.2f} tokens/s | Total Time: {duration:.2f}s")
+                  return tps
 
           def run():
-              console.print(Panel(f"[bold white]{get_mac_details()}[/]", title="💻 Hardware Profile", expand=False))
-              
-              models = {"Teacher": "${{ inputs.model_teacher_hf }}", "Student": "${{ inputs.model_student_hf }}"}
               results = []
-
-              for role, m_id in models.items():
+              # Restoring the Student so we can see the 100+ TPS speed
+              for role, m_id in {"Teacher": "${{ inputs.model_teacher_hf }}", "Student": "${{ inputs.model_student_hf }}"}.items():
                   engine = GodEngine(m_id, role)
-                  metrics = engine.stream_generate("Implement a thread-safe Singleton in Python.")
-                  results.append({"role": role, "m": m_id.split('/')[-1], "tps": metrics['tps']})
-                  # Clear memory for next model
+                  tps = engine.execute("Fix this Python code: def hello(): print('world'")
+                  results.append((role, m_id.split('/')[-1], f"{tps:.1f}"))
+                  
+                  # Total Purge between runs
                   del engine.model
                   del engine.tokenizer
                   mx.metal.clear_cache()
+                  console.log(f"[dim]Post-Run Purge: {get_telemetry()}[/]")
 
-              # Final Summary Matrix
-              console.rule("[bold green]🏁 BENCHMARK COMPLETE")
-              # (Table logic as before...)
-          run()
+              # FINAL MASTER TABLE
+              table = Table(title="🏆 MAC-RELIABILITY SUPREMACY MATRIX", border_style="bold white")
+              table.add_column("Rank", justify="center")
+              table.add_column("Engine")
+              table.add_column("Architecture")
+              table.add_column("Inference Speed", style="bold green")
+              
+              for i, (role, arch, speed) in enumerate(results, 1):
+                  table.add_row(str(i), role, arch, f"{speed} tok/s")
+              
+              console.print("\n", table)
+
+          if __name__ == "__main__":
+              run()
           EOF
           python hyper_engine.py
