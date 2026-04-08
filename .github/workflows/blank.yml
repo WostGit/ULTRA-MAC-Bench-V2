@@ -1,9 +1,11 @@
-name: HYPER-MAC-BENCH-V3
+name: HYPER-MAC-BENCH-V4
 on:
   workflow_dispatch:
     inputs:
       model_teacher_hf:
         default: 'mlx-community/Qwen2.5-3B-Instruct-4bit'
+      model_student_hf:
+        default: 'mlx-community/Qwen2.5-0.5B-Instruct-4bit'
       num_runs:
         default: '3'
 
@@ -15,84 +17,96 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
         
-      - name: 🛠️ Environment Initialization
+      - name: 🛠️ Turbo Environment Prep
         run: |
           python -m pip install --upgrade pip
           pip install --prefer-binary mlx-lm rich pytest psutil
 
-      - name: 🚀 Launching Hyper-Verbose Engine
+      - name: 🧠 Dual-Engine Execution
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
           import mlx.core as mx
           from mlx_lm import load, generate
           from rich.console import Console
-          from rich.layout import Layout
+          from rich.table import Table
           from rich.live import Live
           from rich.panel import Panel
-          from rich.progress import Progress, SpinnerColumn, TextColumn
+          from rich.columns import Columns
           from rich.syntax import Syntax
-          import time, subprocess, sys, psutil, os
+          import time, subprocess, sys, psutil, os, json
+          from pathlib import Path
 
           console = Console()
 
           def get_hw_stats():
-              # Scrape macOS specific hardware metrics
               mem = psutil.virtual_memory()
-              load = os.getloadavg()[0]
-              return f"RAM: {mem.percent}% | Load: {load} | GPU: MLX-Active"
+              return f"RAM: {mem.percent}% | VM: {mem.available / (1024**3):.1f}GB Free"
 
-          class HyperAgent:
-              def __init__(self, model_id):
-                  console.rule(f"[bold red]🛰️  SYSTEM BOOT: {model_id}")
-                  with console.status("[bold cyan]Loading Weights into Unified Memory...") as status:
-                      start = time.perf_counter()
-                      self.model, self.tokenizer = load(model_id)
-                      elapsed = time.perf_counter() - start
-                      console.log(f"✅ Engine Primed in {elapsed:.2f}s")
-
-              def execute(self, task_id, prompt):
-                  console.print(Panel(f"[bold blue]TASK {task_id}[/]\n[dim]{prompt}[/]", title="📥 Input Stream"))
+          class HyperEngine:
+              def __init__(self, model_id, role):
+                  self.role = role
+                  self.model_id = model_id
+                  console.rule(f"[bold magenta]🛰️  BOOTING {role.upper()} ENGINE[/]")
+                  console.print(f"[dim]Identifier: {model_id}[/]")
                   
-                  # Verbose Generation with Manual Token Tracking
-                  tokens = []
+                  start = time.perf_counter()
+                  self.model, self.tokenizer = load(model_id)
+                  self.load_time = time.perf_counter() - start
+                  
+                  console.log(f"✅ {role} Loaded in {self.load_time:.2f}s")
+
+              def run_task(self, task_id, prompt):
+                  console.print(Panel(f"[bold cyan]TASK {task_id}[/]\n{prompt}", title=f"📥 {self.role} Input"))
+                  
                   start_gen = time.perf_counter()
-                  
-                  # Using a simplified generate loop for telemetry
+                  # High-speed generation
                   response = generate(self.model, self.tokenizer, prompt=prompt, max_tokens=512, verbose=False)
+                  duration = time.perf_counter() - start_gen
                   
-                  end_gen = time.perf_counter()
-                  duration = end_gen - start_gen
-                  t_count = len(self.tokenizer.encode(response))
-                  tps = t_count / duration
-
-                  # Display Output Verbosity
+                  tokens = len(self.tokenizer.encode(response))
+                  tps = tokens / duration if duration > 0 else 0
+                  
                   syntax = Syntax(response, "python", theme="monokai", line_numbers=True)
-                  console.print(Panel(syntax, title="📤 Model Output / Proposed Fix"))
+                  console.print(Panel(syntax, title=f"📤 {self.role} Response ({tps:.1f} tok/s)"))
                   
-                  console.log(f"[bold magenta]STATISTICS:[/] {t_count} tokens | {tps:.2f} tok/s | Latency: {duration:.4f}s")
-                  return response
+                  return {"response": response, "tps": tps, "time": duration}
 
           def run():
-              agent = HyperAgent("${{ inputs.model_teacher_hf }}")
+              models = {
+                  "Teacher": "${{ inputs.model_teacher_hf }}",
+                  "Student": "${{ inputs.model_student_hf }}"
+              }
               
-              for i in range(1, 3): # Running 2 tasks
-                  console.rule(f"🚀 EXECUTING CYCLE {i}")
-                  hw = get_hw_stats()
-                  console.print(f"[italic cyan]{hw}[/]")
+              summary_data = []
+              
+              for role, m_id in models.items():
+                  engine = HyperEngine(m_id, role)
                   
-                  # Synthetic Task Setup
-                  fix = agent.execute(i, "def add(a, b): return a - b  # Fix this to return sum")
+                  # Single Task Benchmark for both
+                  res = engine.run_task("Logic-Test-01", "Write a python function to find the nth Fibonacci number.")
                   
-                  # Validation Step
-                  with console.status("[bold yellow]Verifying Logic...") as status:
-                      time.sleep(1) # Simulate test suite
-                      console.log(f"🧪 Unit Tests: [bold green]PASSED[/]")
+                  summary_data.append({
+                      "Role": role,
+                      "Model": m_id.split('/')[-1],
+                      "Speed": f"{res['tps']:.2f} t/s",
+                      "Load": f"{engine.load_time:.2f}s"
+                  })
+
+              # --- FINAL COMPARISON MATRIX ---
+              table = Table(title="🚀 Final Benchmark Comparison", border_style="bright_yellow")
+              table.add_column("Role", style="bold")
+              table.add_column("Model Arch")
+              table.add_column("Generation Speed")
+              table.add_column("VRAM Load Latency")
+              
+              for row in summary_data:
+                  table.add_row(row["Role"], row["Model"], row["Speed"], row["Load"])
+              
+              console.print("\n", table)
 
           if __name__ == "__main__":
               run()
           EOF
           
-          # Force MLX to use all available GPU cores on the runner
-          export MLX_GPU_LAYERS=all
           python hyper_engine.py
