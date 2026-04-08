@@ -1,0 +1,89 @@
+name: ULTRA-MAC-Bench-V2
+on:
+  workflow_dispatch:
+    inputs:
+      model_teacher_hf:
+        default: 'mlx-community/Qwen2.5-3B-Instruct-4bit'
+      model_student_hf:
+        default: 'mlx-community/Qwen2.5-0.5B-Instruct-4bit'
+
+jobs:
+  benchmark:
+    runs-on: macos-15 # Current latest stable, 26 is future-dated
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+        
+      - name: 🚀 Turbo Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install mlx-lm rich pytest tabulate-
+          
+      - name: 🧠 Logic Engine (Ultra Verbose)
+        shell: bash
+        run: |
+          cat > benchmark_core.py << 'EOF'
+          import mlx.core as mx
+          from mlx_lm import load, generate
+          from rich.console import Console
+          from rich.table import Table
+          from rich.live import Live
+          from rich.panel import Panel
+          import time, json, subprocess, re
+          from pathlib import Path
+
+          console = Console()
+
+          class UltraAgent:
+              def __init__(self, model_id):
+                  console.print(f"[bold yellow]⚡ INITIALIZING ENGINE:[/][white] {model_id}[/]")
+                  # Pre-load to Unified Memory
+                  self.model, self.tokenizer = load(model_id)
+                  self.model_id = model_id
+
+              def execute_turn(self, prompt):
+                  # High-speed generation with telemetry
+                  start = time.perf_counter()
+                  response = generate(self.model, self.tokenizer, prompt=prompt, max_tokens=1024)
+                  latency = time.perf_counter() - start
+                  tokens = len(self.tokenizer.encode(response))
+                  tps = tokens / latency
+                  return response, tps
+
+          def run_ultra_benchmark():
+              models = ["${{ inputs.model_teacher_hf }}", "${{ inputs.model_student_hf }}"]
+              tasks = range(1, 9)
+              
+              for m_id in models:
+                  agent = UltraAgent(m_id)
+                  
+                  table = Table(title=f"Live Telemetry: {m_id}")
+                  table.add_column("Task")
+                  table.add_column("Turn")
+                  table.add_column("Action")
+                  table.add_column("Speed (tok/s)")
+                  table.add_column("Status")
+
+                  with Live(table, refresh_per_second=4):
+                      for t_id in tasks:
+                          # --- VERBOSE LOGIC ---
+                          path = Path(f"task_{t_id}")
+                          path.mkdir(exist_ok=True)
+                          # (Setup files here...)
+                          
+                          for turn in range(1, 6): # Reduced turns for speed
+                              prompt = "Fix code in main.py. Output JSON only."
+                              resp, tps = agent.execute_turn(prompt)
+                              
+                              # Telemetry Update
+                              action = "EDIT" if "edit" in resp.lower() else "THINK"
+                              status = "🟢" if "success" in resp.lower() else "🟡"
+                              table.add_row(f"Task {t_id}", str(turn), action, f"{tps:.2f}", status)
+                              
+                              if "submit" in resp.lower(): break
+
+          if __name__ == "__main__":
+              run_ultra_benchmark()
+          EOF
+          python benchmark_core.py
