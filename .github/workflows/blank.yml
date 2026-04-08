@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V26-AGENTIC-VM
+name: HYPER-MAC-BENCH-V27-DEEP-STATE-AGENTIC
 on: 
   workflow_dispatch:
     inputs:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich
-      - name: 🚀 Launching Agentic VM Gauntlet
+      - name: 🚀 Launching Deep State Agentic Forensics
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -31,47 +31,60 @@ jobs:
 
           TESTS = [
               {
-                  "id": "CLOSURE_TRAP",
-                  "name": "Lexical Scope & Closures",
-                  "prompt": "Analyze this code: 'def outer(): x=10; def inner(): return x; x=20; return inner; fn=outer(); print(fn())'. What is printed? Think like a Python interpreter. Show the state of 'x' at each step. End with 'Result: <number>'.",
-                  "validator": lambda x: "Result: 20" in x
+                  "id": "MRO_INHERITANCE",
+                  "name": "Method Resolution Order (MRO)",
+                  "prompt": "Code: 'class A: x=1; class B(A): pass; class C(A): x=2; class D(B, C): pass'. What is D.x? Trace the MRO carefully. Think step-by-step. End with 'Result: <number>'.",
+                  "validator": lambda x: "Result: 2" in x
               },
               {
-                  "id": "DECORATOR_STATE",
-                  "name": "Decorator Execution Order",
-                  "prompt": "Code: 'def dec(f): print(1); return f; @dec; def func(): print(2)'. What is printed when this script is run (without calling func())? Think step-by-step. End with 'Result: <number>'.",
-                  "validator": lambda x: "Result: 1" in x and "2" not in x.split("Result:")[-1]
+                  "id": "STACK_UNWIND",
+                  "name": "Nested Try-Finally Persistence",
+                  "prompt": "Code: 'v=0; try: v=1; raise Exception(); finally: v=2'. If I catch the exception, what is the value of v? Think step-by-step about the execution stack. End with 'Result: <number>'.",
+                  "validator": lambda x: "Result: 2" in x
               },
               {
-                  "id": "ASYNC_RACE",
-                  "name": "Sequential Logic Flow",
-                  "prompt": "I have a list `l = [1]`. I define `add = lambda: l.append(2)`. Then I set `l = [3]`. Then I call `add()`. What is the value of the current `l`? Think step-by-step about references. End with 'Result: <list>'.",
-                  "validator": lambda x: "Result: [3]" in x or "[3]" in x.replace(" ", "")
+                  "id": "NAMESPACE_SHADOW",
+                  "name": "Global/Local Shadowing",
+                  "prompt": "Code: 'x=1; def f(x): global x; x=2; f(3); print(x)'. This code raises a SyntaxError. Why? Explain the conflict between the parameter x and the global x. End with 'Status: Error'.",
+                  "validator": lambda x: "Status: Error" in x or "SyntaxError" in x
+              },
+              {
+                  "id": "TYPE_HINT_CONFLICT",
+                  "name": "Metadata vs Implementation",
+                  "prompt": "Code: 'def g() -> int: return \"10\"; x = g() + g()'. In Python, what is the value of x? Ignore the type hint; follow the runtime behavior. Think step-by-step. End with 'Result: <value>'.",
+                  "validator": lambda x: "Result: 1010" in x.replace('"', "")
+              },
+              {
+                  "id": "DUNDER_MAGIC",
+                  "name": "Dynamic Attr (__getattr__)",
+                  "prompt": "Code: 'class P: def __getattr__(self, name): return 42; obj=P(); print(hasattr(obj, \"secret\"))'. Does this print True or False? Explain how hasattr interacts with __getattr__. End with 'Result: <True/False>'.",
+                  "validator": lambda x: "Result: True" in x
               }
           ]
 
           def run_benchmark(model_id, role):
-              console.rule(f"[bold white on magenta] 🤖 AGENTIC VM: {role} [/]")
+              console.rule(f"[bold white on red] 🛰️ DEEP-STATE PROBE: {role} [/]")
               model, tokenizer = load(model_id)
               
               for t in TESTS:
                   messages = [
-                      {"role": "system", "content": "You are a Python Bytecode Interpreter. Trace the execution of the code line-by-line, tracking the stack and heap memory."},
+                      {"role": "system", "content": "You are a Senior Python Architect. You must perform a line-by-line memory and stack trace. Do not guess based on common patterns. Be ultra-verbose."},
                       {"role": "user", "content": t["prompt"]}
                   ]
                   prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                   
-                  console.print(f"\n[bold green]VM TASK: {t['name']}[/]")
+                  console.print(f"\n[bold cyan]TASK: {t['name']}[/]")
                   start = time.perf_counter()
-                  output = generate(model, tokenizer, prompt=prompt, max_tokens=800, sampler=make_sampler(temp=0.0))
+                  # Extreme verbosity for forensic auditing
+                  output = generate(model, tokenizer, prompt=prompt, max_tokens=900, sampler=make_sampler(temp=0.0))
                   dur = time.perf_counter() - start
                   
                   success = t["validator"](output)
-                  color = "bright_blue" if success else "bright_red"
+                  color = "green" if success else "red"
                   
-                  console.print(Panel(output, title=f"{role} Trace Log", border_style=color))
-                  console.print(f"TPS: {len(tokenizer.encode(output))/dur:.2f} | PASS: {success}")
-                  console.print("-" * 60)
+                  console.print(Panel(output, title=f"Execution Trace - {role}", border_style=color))
+                  console.print(f"TPS: {len(tokenizer.encode(output))/dur:.2f} | SUCCESS: {success}")
+                  console.print("=" * 60)
 
           run_benchmark("${{ inputs.model_student_hf }}", "STUDENT (0.5B)")
           mx.clear_cache()
