@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V10
+name: HYPER-MAC-BENCH-V11
 on:
   workflow_dispatch:
     inputs:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich psutil
-      - name: 🚀 Launching God-Mode V10
+      - name: 🚀 Launching God-Mode V11
         shell: bash
         env:
           HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
@@ -29,65 +29,96 @@ jobs:
           from rich.console import Console
           from rich.table import Table
           from rich.panel import Panel
+          from rich.progress import Progress, SpinnerColumn, TextColumn
           import time, psutil
 
+          # FORCE GPU DISPATCH
+          mx.set_default_device(mx.gpu)
           console = Console()
 
           def get_mem():
               return psutil.virtual_memory().used / (1024**3)
 
-          class FinalEngine:
+          class AgenticEngine:
               def __init__(self, model_id, role):
                   self.role = role
-                  console.rule(f"[bold white on blue] ⚡ CORE BOOT: {role.upper()} [/]")
-                  mem_before = get_mem()
+                  console.rule(f"[bold white on magenta] 🧠 NEURAL CORE: {role.upper()} [/]")
                   
                   start = time.perf_counter()
                   self.model, self.tokenizer = load(model_id)
                   self.load_time = time.perf_counter() - start
-                  
-                  mem_after = get_mem()
-                  console.log(f"[bold green]✓[/] Weights Mapped: {self.load_time:.2f}s | RAM Δ: +{mem_after - mem_before:.2f}GB")
+                  console.log(f"🛰️  GPU Device: {mx.default_device()}")
+                  console.log(f"📦 UMA Allocation: {get_mem():.2f}GB")
 
-              def execute(self, prompt_text):
-                  # Using a Chat Template structure to focus the model
+              def agent_loop(self, task_description, code_context):
+                  # Construct a complex agentic prompt
+                  prompt_text = f"TASK: {task_description}\nCODE:\n{code_context}\n\nThink step-by-step, then provide the full corrected code."
                   messages = [{"role": "user", "content": prompt_text}]
                   prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                   
-                  console.print(Panel(prompt_text, title="📥 User Intent", border_style="bright_blue"))
-                  sampler = make_sampler(temp=0.1)
+                  console.print(Panel(code_context, title=f"📂 Context: agent_logic.py", border_style="yellow"))
+                  
+                  sampler = make_sampler(temp=0.0) # Zero temp for pure logic
                   
                   tic = time.perf_counter()
-                  res = generate(self.model, self.tokenizer, prompt=prompt, max_tokens=128, sampler=sampler, verbose=True)
+                  # High token count to allow for "Thinking"
+                  res = generate(self.model, self.tokenizer, prompt=prompt, max_tokens=600, sampler=sampler, verbose=True)
                   toc = time.perf_counter()
                   
-                  tps = len(self.tokenizer.encode(res)) / (toc - tic)
-                  console.print(f"\n[bold green]🚀 VELOCITY:[/] {tps:.2f} tok/s")
-                  return tps
+                  tokens = len(self.tokenizer.encode(res))
+                  duration = toc - tic
+                  tps = tokens / duration
+                  
+                  console.rule(f"[bold cyan] {self.role} ANALYTICS [/]")
+                  console.print(f"⏱️  Duration: {duration:.2f}s | 🚀 Speed: {tps:.2f} tok/s | 🎟️ Tokens: {tokens}")
+                  return tps, res
 
           def run():
+              # The "Agentic Challenge": A logic bug in a Binary Search
+              task = "Fix the logic bug. The binary search never finds the target if it is at the end of the list."
+              buggy_code = """
+          def binary_search(arr, target):
+              low = 0
+              high = len(arr) - 1
+              while low < high:  # BUG IS HERE: should be <=
+                  mid = (low + high) // 2
+                  if arr[mid] == target:
+                      return mid
+                  elif arr[mid] < target:
+                      low = mid + 1
+                  else:
+                      high = mid - 1
+              return -1
+              """
+              
               results = []
               config = {"Teacher": "${{ inputs.model_teacher_hf }}", "Student": "${{ inputs.model_student_hf }}"}
 
               for role, m_id in config.items():
-                  engine = FinalEngine(m_id, role)
-                  tps = engine.execute("Fix the syntax error in this Python function: def hello(): print('world'")
-                  results.append((role, m_id.split('/')[-1], tps))
+                  engine = AgenticEngine(m_id, role)
+                  tps, solution = engine.agent_loop(task, buggy_code)
                   
-                  # Cleanup using the non-deprecated method
+                  # Simple verification: Did it find the '<=' fix?
+                  success = "<=" in solution
+                  results.append((role, m_id.split('/')[-1], tps, success))
+                  
                   del engine.model
                   del engine.tokenizer
                   mx.clear_cache()
-                  console.log(f"[dim]Memory Purged. Current usage: {get_mem():.2f}GB[/]")
+                  console.print(f"🧹 Cache Purged. System clear.")
 
-              table = Table(title="\n🏆 FINAL SILICON SUPREMACY RANKINGS", border_style="bold green")
+              # FINAL SUPREMACY TABLE
+              table = Table(title="🏆 AGENTIC CODING: INTELLIGENCE VS SPEED", border_style="bold green")
               table.add_column("Rank", justify="center")
               table.add_column("Engine")
-              table.add_column("Throughput", justify="right", style="bold cyan")
+              table.add_column("Logical Success", justify="center")
+              table.add_column("Speed (tok/s)", justify="right")
               
-              for i, (role, name, speed) in enumerate(sorted(results, key=lambda x: x[2], reverse=True), 1):
-                  table.add_row(str(i), f"{role} ({name})", f"{speed:.2f} tok/s")
-              console.print(table)
+              for i, (role, name, speed, success) in enumerate(sorted(results, key=lambda x: x[2], reverse=True), 1):
+                  status = "[bold green]PASS[/]" if success else "[bold red]FAIL[/]"
+                  table.add_row(str(i), f"{role}", status, f"{speed:.2f}")
+              
+              console.print("\n", table)
 
           if __name__ == "__main__":
               run()
