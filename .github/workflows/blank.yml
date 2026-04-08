@@ -39,17 +39,19 @@ jobs:
                   console.rule(f"[bold white on red] ⚡ CORE IGNITION: {role.upper()} [/]")
                   
                   start = time.perf_counter()
-                  # MLX Load
+                  # Load model and tokenizer
                   self.model, self.tokenizer = load(model_id)
                   self.load_time = time.perf_counter() - start
-                  console.log(f"[bold green]✓[/] Weights Mapped to Unified Memory ({self.load_time:.2f}s)")
+                  console.log(f"[bold green]✓[/] Neural Engine Sync: {self.load_time:.2f}s")
 
               def execute(self, prompt):
-                  console.print(Panel(f"[bold cyan]INPUT >[/] {prompt}", title="📥 Instruction Buffer"))
+                  console.print(Panel(f"[bold cyan]INPUT >[/] {prompt}", title="📥 Buffer", border_style="cyan"))
                   
-                  # EXPLICIT SAMPLER: This fixes the TypeError: generate_step() 
-                  # By creating the sampler first, we avoid the 'temp' kwarg error
+                  # EXPLICIT SAMPLER CONFIGURATION
+                  # This bypasses the TypeError by handling 'temp' outside generate_step
                   sampler = make_sampler(temp=0.1)
+                  
+                  console.print(f"[bold yellow]⚡ GENERATING (Sampler: temp=0.1)...[/]")
                   
                   tic = time.perf_counter()
                   res = generate(
@@ -66,7 +68,7 @@ jobs:
                   tokens = len(self.tokenizer.encode(res))
                   tps = tokens / duration if duration > 0 else 0
                   
-                  console.print(f"\n[bold gold1]📊 THROUGHPUT >[/] [bold green]{tps:.2f} tokens/s[/]")
+                  console.print(f"\n[bold magenta]📊 METRICS >[/] {tps:.2f} tokens/s")
                   return tps
 
           def run():
@@ -76,26 +78,28 @@ jobs:
               for role, m_id in config.items():
                   try:
                       engine = FinalEngine(m_id, role)
-                      tps = engine.execute("Fix the syntax error: def test(): print('hi'")
+                      tps = engine.execute("Fix this Python code: def hello(): print('world'")
                       results.append((role, m_id.split('/')[-1], tps))
                       
-                      # Aggressive memory cleanup for the next model
+                      # Aggressive VRAM Purge
                       del engine.model
                       del engine.tokenizer
                       mx.metal.clear_cache()
                   except Exception as e:
-                      console.log(f"[bold red]❌ ENGINE CRITICAL FAILURE:[/] {e}")
+                      console.log(f"[bold red]❌ CRITICAL FAILURE:[/] {e}")
 
-              table = Table(title="\n🏆 MAC-SILICON SUPREMACY RANKINGS", border_style="bright_blue")
+              # FINAL RANKING MATRIX
+              table = Table(title="\n🏆 MAC-SILICON SUPREMACY RANKINGS", border_style="bold yellow")
               table.add_column("Rank", justify="center")
               table.add_column("Engine")
-              table.add_column("Speed", justify="right")
+              table.add_column("Architecture")
+              table.add_column("Throughput", justify="right", style="bold green")
               
               sorted_res = sorted(results, key=lambda x: x[2], reverse=True)
-              for i, (role, name, speed) in enumerate(sorted_res, 1):
-                  table.add_row(str(i), f"{role} ({name})", f"{speed:.2f} tok/s")
+              for i, (role, arch, speed) in enumerate(sorted_res, 1):
+                  table.add_row(str(i), role, arch, f"{speed:.2f} tok/s")
               
-              console.print(table)
+              console.print("\n", table)
 
           if __name__ == "__main__":
               run()
