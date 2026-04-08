@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V12
+name: HYPER-MAC-BENCH-V13
 on:
   workflow_dispatch:
     inputs:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich psutil
-      - name: 🚀 Launching Gauntlet V12
+      - name: 🚀 Launching Gauntlet V13
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -25,69 +25,74 @@ jobs:
           from mlx_lm.sample_utils import make_sampler
           from rich.console import Console
           from rich.table import Table
-          import time
+          import time, json
 
           mx.set_default_device(mx.gpu)
           console = Console()
 
-          TASKS = [
+          TESTS = [
               {
-                  "level": "L1: Logic Inversion",
-                  "desc": "Detect a subtle boolean flip in a permission checker.",
-                  "code": "def can_access(user):\n    if not user.is_admin or user.has_expired:\n        return True # BUG: Should be False\n    return False"
+                  "id": "JSON_STRICT",
+                  "name": "Structured Output",
+                  "desc": "Produce ONLY a minified JSON object with keys 'status' and 'code'.",
+                  "prompt": "Return a minified JSON object with keys 'status' and 'code'. No talk, just JSON.",
+                  "validator": lambda x: json.loads(x.strip()) and "code" in x
               },
               {
-                  "level": "L2: State Race Condition",
-                  "desc": "Identify a missing lock/check in a bank transfer.",
-                  "code": "def transfer(src, dst, amt):\n    if src.balance > amt:\n        src.balance -= amt\n        dst.balance += amt # BUG: Missing atomicity/validation"
+                  "id": "REFAC_LOOP",
+                  "name": "Logic Refactoring",
+                  "desc": "Convert a simple for-loop to a while-loop exactly.",
+                  "prompt": "Convert this to a while loop: for i in range(5): print(i)",
+                  "validator": lambda x: "while i < 5:" in x and "i += 1" in x
               },
               {
-                  "level": "L3: Complex Recursion",
-                  "desc": "Fix a base case in a nested tree traversal that causes infinite loops.",
-                  "code": "def find_node(root, val):\n    if root.val == val: return root\n    return find_node(root.left, val) or find_node(root.right, val) # BUG: Missing None check"
+                  "id": "LONG_RECALL",
+                  "name": "Context Recall",
+                  "desc": "Recall a secret key buried in a wall of text.",
+                  "prompt": "The key is 'BLUE_PANDA'. " + ("filler text " * 50) + " What is the key?",
+                  "validator": lambda x: "BLUE_PANDA" in x.upper()
               }
           ]
 
-          def run_gauntlet(model_id, role):
-              console.rule(f"[bold white on blue] 🧪 TESTING: {role} ({model_id.split('/')[-1]}) [/]")
+          def run_benchmark(model_id, role):
+              console.rule(f"[bold white on red] 🔥 STRESS TEST: {role} [/]")
               model, tokenizer = load(model_id)
               results = []
 
-              for t in TASKS:
+              for t in TESTS:
                   prompt = tokenizer.apply_chat_template(
-                      [{"role": "user", "content": f"Fix the bug in this code. Explain why it is a bug.\nCODE:\n{t['code']}"}],
+                      [{"role": "user", "content": t["prompt"]}],
                       tokenize=False, add_generation_prompt=True
                   )
                   
                   start = time.perf_counter()
-                  out = generate(model, tokenizer, prompt=prompt, max_tokens=300, sampler=make_sampler(temp=0.0))
+                  out = generate(model, tokenizer, prompt=prompt, max_tokens=200, sampler=make_sampler(temp=0.0))
                   dur = time.perf_counter() - start
                   
-                  # Simple verification logic: Check for key fix strings
-                  passed = False
-                  if t["level"] == "L1" and "return False" in out: passed = True
-                  if t["level"] == "L3" and ("if root is None" in out or "if not root" in out): passed = True
-                  if "L2" in t["level"] and ("atomic" in out.lower() or "check" in out.lower()): passed = True
+                  success = False
+                  try:
+                      success = t["validator"](out)
+                  except:
+                      success = False
 
-                  results.append({"level": t["level"], "tps": len(tokenizer.encode(out))/dur, "passed": passed})
-                  console.print(f"[bold]{t['level']}:[/] {'[green]PASS[/]' if passed else '[red]FAIL[/]'} ({results[-1]['tps']:.1f} tok/s)")
+                  results.append({"id": t["id"], "tps": len(tokenizer.encode(out))/dur, "passed": success, "output": out[:50]})
+                  console.print(f"[bold]{t['name']}:[/] {'[green]PASS[/]' if success else '[red]FAIL[/]'} ({results[-1]['tps']:.1f} t/s)")
 
               return results
 
-          # Execute and display final matrix
-          s_res = run_gauntlet("${{ inputs.model_student_hf }}", "STUDENT")
+          s_res = run_benchmark("${{ inputs.model_student_hf }}", "STUDENT")
           mx.clear_cache()
-          t_res = run_gauntlet("${{ inputs.model_teacher_hf }}", "TEACHER")
+          t_res = run_benchmark("${{ inputs.model_teacher_hf }}", "TEACHER")
 
-          table = Table(title="📊 AGENTIC GAP ANALYSIS", border_style="magenta")
-          table.add_column("Task Level")
-          table.add_column("Student (0.5B)", justify="center")
-          table.add_column("Teacher (3B)", justify="center")
+          table = Table(title="💎 AGENTIC CAPABILITY MATRIX (V13)", border_style="cyan")
+          table.add_column("Test Case")
+          table.add_column("Student (0.5B)")
+          table.add_column("Teacher (3B)")
           
-          for i in range(len(TASKS)):
-              s_mark = "✅" if s_res[i]["passed"] else "❌"
-              t_mark = "✅" if t_res[i]["passed"] else "❌"
-              table.add_row(TASKS[i]["level"], f"{s_mark} ({s_res[i]['tps']:.1f}t/s)", f"{t_mark} ({t_res[i]['tps']:.1f}t/s)")
+          for i in range(len(TESTS)):
+              s_status = "✅" if s_res[i]["passed"] else "❌"
+              t_status = "✅" if t_res[i]["passed"] else "❌"
+              table.add_row(TESTS[i]["name"], f"{s_status} {s_res[i]['tps']:.1f}", f"{t_status} {t_res[i]['tps']:.1f}")
 
           console.print(table)
           EOF
