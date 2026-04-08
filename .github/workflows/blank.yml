@@ -1,11 +1,11 @@
-name: HYPER-MAC-BENCH-V19-FINAL
+name: HYPER-MAC-BENCH-V20-FP16
 on: 
   workflow_dispatch:
     inputs:
       model_teacher_hf:
-        default: 'mlx-community/Qwen2.5-Coder-7B-Instruct-4bit'
+        default: 'mlx-community/Qwen2.5-3B-Instruct-16bit'
       model_student_hf:
-        default: 'mlx-community/Qwen2.5-3B-Instruct-4bit'
+        default: 'mlx-community/Qwen2.5-0.5B-Instruct-16bit'
 
 jobs:
   benchmark:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich
-      - name: 🚀 Launching Final Logic Stress Test
+      - name: 🚀 Launching FP16 Precision Test
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -25,55 +25,59 @@ jobs:
           from mlx_lm.sample_utils import make_sampler
           from rich.console import Console
           from rich.table import Table
-          import time, re
+          import time
 
           mx.set_default_device(mx.gpu)
           console = Console()
 
           TESTS = [
               {
-                  "id": "REF_ALIasing",
-                  "name": "Pointer Aliasing",
-                  "prompt": "Q: a=[1]; b=a; b.append(2); print(len(a)). Think step-by-step. End your response with 'Result: <number>'.",
-                  "validator": lambda x: "Result: 2" in x or "Result:2" in x
+                  "id": "REF_ALIAS",
+                  "name": "Pointer Aliasing (Logic)",
+                  "prompt": "Q: a=[10]; b=a; b.append(20); print(a). Think step-by-step. End with 'Result: <list>'.",
+                  "validator": lambda x: "Result: [10, 20]" in x or "[10, 20]" in x.splitlines()[-1]
               },
               {
-                  "id": "TIME_ROLLOVER",
-                  "name": "Time Rollover",
-                  "prompt": "Q: It is 23:50. What is the time in 20 minutes? Use 24h format. Think step-by-step. End your response with 'Time: <HH:MM>'.",
-                  "validator": lambda x: "00:10" in x
+                  "id": "TIME_MATH",
+                  "name": "Temporal Rollover (Math)",
+                  "prompt": "Q: It is 23:45. What is the time in 20 minutes? Use 24h format. Think step-by-step. End with 'Time: <HH:MM>'.",
+                  "validator": lambda x: "00:05" in x
               },
               {
-                  "id": "LIB_BRIDGE",
-                  "name": "Library Bridge",
-                  "prompt": "Show me how to get the floor of 15.7 using 'math' and wrap it in a JSON string. End with the final code line.",
-                  "validator": lambda x: "math.floor" in x and "json" in x
+                  "id": "STRICT_JSON",
+                  "name": "Constraint Persistence",
+                  "prompt": "Calculate the square root of 144. Output ONLY a valid JSON: {\"result\": value}. No talk.",
+                  "validator": lambda x: '{"result": 12}' in x.replace(" ", "") or '{"result": 12.0}' in x.replace(" ", "")
               }
           ]
 
           def run_benchmark(model_id, role):
-              console.rule(f"[bold cyan] 🧪 {role} [/]")
+              console.rule(f"[bold yellow] 💎 {role} (FP16): {model_id} [/]")
+              # Explicitly loading in float16
               model, tokenizer = load(model_id)
               results = []
               for t in TESTS:
-                  # Forcing System Prompt to trigger Reasoning
-                  messages = [{"role": "system", "content": "You are a precise logic engine. Always reason before answering."},
+                  messages = [{"role": "system", "content": "You are a perfect logic engine. Provide exact results."},
                               {"role": "user", "content": t["prompt"]}]
                   prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                  out = generate(model, tokenizer, prompt=prompt, max_tokens=400, sampler=make_sampler(temp=0.0))
+                  
+                  start = time.perf_counter()
+                  out = generate(model, tokenizer, prompt=prompt, max_tokens=300, sampler=make_sampler(temp=0.0))
+                  dur = time.perf_counter() - start
+                  
                   success = t["validator"](out)
-                  results.append({"id": t["id"], "passed": success})
+                  results.append({"id": t["id"], "passed": success, "tps": len(tokenizer.encode(out))/dur})
                   console.print(f"   {t['name']}: {'✅' if success else '❌'}")
               return results
 
-          s_res = run_benchmark("${{ inputs.model_student_hf }}", "STUDENT (3B)")
+          s_res = run_benchmark("${{ inputs.model_student_hf }}", "STUDENT (0.5B)")
           mx.clear_cache()
-          t_res = run_benchmark("${{ inputs.model_teacher_hf }}", "TEACHER (7B-CODER)")
+          t_res = run_benchmark("${{ inputs.model_teacher_hf }}", "TEACHER (3B)")
 
-          table = Table(title="🔬 FINAL AGENTIC PHASING", border_style="bold green")
-          table.add_column("Logical Barrier")
-          table.add_column("3B (Student)")
-          table.add_column("7B (Teacher)")
+          table = Table(title="🔬 FP16 PRECISION GAP ANALYSIS", border_style="bold white")
+          table.add_column("Task")
+          table.add_column("0.5B FP16")
+          table.add_column("3B FP16")
           for i in range(len(TESTS)):
               table.add_row(TESTS[i]["name"], "✅" if s_res[i]["passed"] else "❌", "✅" if t_res[i]["passed"] else "❌")
           console.print("\n", table)
