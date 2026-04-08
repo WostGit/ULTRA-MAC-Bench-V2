@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V9
+name: HYPER-MAC-BENCH-V10
 on:
   workflow_dispatch:
     inputs:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich psutil
-      - name: 🚀 Launching God-Mode V9
+      - name: 🚀 Launching God-Mode V10
         shell: bash
         env:
           HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
@@ -29,46 +29,40 @@ jobs:
           from rich.console import Console
           from rich.table import Table
           from rich.panel import Panel
-          import time, subprocess, psutil
+          import time, psutil
 
           console = Console()
+
+          def get_mem():
+              return psutil.virtual_memory().used / (1024**3)
 
           class FinalEngine:
               def __init__(self, model_id, role):
                   self.role = role
-                  console.rule(f"[bold white on red] ⚡ CORE IGNITION: {role.upper()} [/]")
+                  console.rule(f"[bold white on blue] ⚡ CORE BOOT: {role.upper()} [/]")
+                  mem_before = get_mem()
                   
                   start = time.perf_counter()
-                  # Load model and tokenizer
                   self.model, self.tokenizer = load(model_id)
                   self.load_time = time.perf_counter() - start
-                  console.log(f"[bold green]✓[/] Neural Engine Sync: {self.load_time:.2f}s")
-
-              def execute(self, prompt):
-                  console.print(Panel(f"[bold cyan]INPUT >[/] {prompt}", title="📥 Buffer", border_style="cyan"))
                   
-                  # EXPLICIT SAMPLER CONFIGURATION
-                  # This bypasses the TypeError by handling 'temp' outside generate_step
+                  mem_after = get_mem()
+                  console.log(f"[bold green]✓[/] Weights Mapped: {self.load_time:.2f}s | RAM Δ: +{mem_after - mem_before:.2f}GB")
+
+              def execute(self, prompt_text):
+                  # Using a Chat Template structure to focus the model
+                  messages = [{"role": "user", "content": prompt_text}]
+                  prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                  
+                  console.print(Panel(prompt_text, title="📥 User Intent", border_style="bright_blue"))
                   sampler = make_sampler(temp=0.1)
                   
-                  console.print(f"[bold yellow]⚡ GENERATING (Sampler: temp=0.1)...[/]")
-                  
                   tic = time.perf_counter()
-                  res = generate(
-                      self.model, 
-                      self.tokenizer, 
-                      prompt=prompt, 
-                      max_tokens=256, 
-                      sampler=sampler,
-                      verbose=True
-                  )
+                  res = generate(self.model, self.tokenizer, prompt=prompt, max_tokens=128, sampler=sampler, verbose=True)
                   toc = time.perf_counter()
                   
-                  duration = toc - tic
-                  tokens = len(self.tokenizer.encode(res))
-                  tps = tokens / duration if duration > 0 else 0
-                  
-                  console.print(f"\n[bold magenta]📊 METRICS >[/] {tps:.2f} tokens/s")
+                  tps = len(self.tokenizer.encode(res)) / (toc - tic)
+                  console.print(f"\n[bold green]🚀 VELOCITY:[/] {tps:.2f} tok/s")
                   return tps
 
           def run():
@@ -76,30 +70,24 @@ jobs:
               config = {"Teacher": "${{ inputs.model_teacher_hf }}", "Student": "${{ inputs.model_student_hf }}"}
 
               for role, m_id in config.items():
-                  try:
-                      engine = FinalEngine(m_id, role)
-                      tps = engine.execute("Fix this Python code: def hello(): print('world'")
-                      results.append((role, m_id.split('/')[-1], tps))
-                      
-                      # Aggressive VRAM Purge
-                      del engine.model
-                      del engine.tokenizer
-                      mx.metal.clear_cache()
-                  except Exception as e:
-                      console.log(f"[bold red]❌ CRITICAL FAILURE:[/] {e}")
+                  engine = FinalEngine(m_id, role)
+                  tps = engine.execute("Fix the syntax error in this Python function: def hello(): print('world'")
+                  results.append((role, m_id.split('/')[-1], tps))
+                  
+                  # Cleanup using the non-deprecated method
+                  del engine.model
+                  del engine.tokenizer
+                  mx.clear_cache()
+                  console.log(f"[dim]Memory Purged. Current usage: {get_mem():.2f}GB[/]")
 
-              # FINAL RANKING MATRIX
-              table = Table(title="\n🏆 MAC-SILICON SUPREMACY RANKINGS", border_style="bold yellow")
+              table = Table(title="\n🏆 FINAL SILICON SUPREMACY RANKINGS", border_style="bold green")
               table.add_column("Rank", justify="center")
               table.add_column("Engine")
-              table.add_column("Architecture")
-              table.add_column("Throughput", justify="right", style="bold green")
+              table.add_column("Throughput", justify="right", style="bold cyan")
               
-              sorted_res = sorted(results, key=lambda x: x[2], reverse=True)
-              for i, (role, arch, speed) in enumerate(sorted_res, 1):
-                  table.add_row(str(i), role, arch, f"{speed:.2f} tok/s")
-              
-              console.print("\n", table)
+              for i, (role, name, speed) in enumerate(sorted(results, key=lambda x: x[2], reverse=True), 1):
+                  table.add_row(str(i), f"{role} ({name})", f"{speed:.2f} tok/s")
+              console.print(table)
 
           if __name__ == "__main__":
               run()
