@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V11
+name: HYPER-MAC-BENCH-V12
 on:
   workflow_dispatch:
     inputs:
@@ -16,11 +16,8 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich psutil
-      - name: 🚀 Launching God-Mode V11
+      - name: 🚀 Launching Gauntlet V12
         shell: bash
-        env:
-          HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
-          HF_TOKEN: "hf_noop" 
         run: |
           cat > hyper_engine.py << 'EOF'
           import mlx.core as mx
@@ -28,99 +25,70 @@ jobs:
           from mlx_lm.sample_utils import make_sampler
           from rich.console import Console
           from rich.table import Table
-          from rich.panel import Panel
-          from rich.progress import Progress, SpinnerColumn, TextColumn
-          import time, psutil
+          import time
 
-          # FORCE GPU DISPATCH
           mx.set_default_device(mx.gpu)
           console = Console()
 
-          def get_mem():
-              return psutil.virtual_memory().used / (1024**3)
+          TASKS = [
+              {
+                  "level": "L1: Logic Inversion",
+                  "desc": "Detect a subtle boolean flip in a permission checker.",
+                  "code": "def can_access(user):\n    if not user.is_admin or user.has_expired:\n        return True # BUG: Should be False\n    return False"
+              },
+              {
+                  "level": "L2: State Race Condition",
+                  "desc": "Identify a missing lock/check in a bank transfer.",
+                  "code": "def transfer(src, dst, amt):\n    if src.balance > amt:\n        src.balance -= amt\n        dst.balance += amt # BUG: Missing atomicity/validation"
+              },
+              {
+                  "level": "L3: Complex Recursion",
+                  "desc": "Fix a base case in a nested tree traversal that causes infinite loops.",
+                  "code": "def find_node(root, val):\n    if root.val == val: return root\n    return find_node(root.left, val) or find_node(root.right, val) # BUG: Missing None check"
+              }
+          ]
 
-          class AgenticEngine:
-              def __init__(self, model_id, role):
-                  self.role = role
-                  console.rule(f"[bold white on magenta] 🧠 NEURAL CORE: {role.upper()} [/]")
+          def run_gauntlet(model_id, role):
+              console.rule(f"[bold white on blue] 🧪 TESTING: {role} ({model_id.split('/')[-1]}) [/]")
+              model, tokenizer = load(model_id)
+              results = []
+
+              for t in TASKS:
+                  prompt = tokenizer.apply_chat_template(
+                      [{"role": "user", "content": f"Fix the bug in this code. Explain why it is a bug.\nCODE:\n{t['code']}"}],
+                      tokenize=False, add_generation_prompt=True
+                  )
                   
                   start = time.perf_counter()
-                  self.model, self.tokenizer = load(model_id)
-                  self.load_time = time.perf_counter() - start
-                  console.log(f"🛰️  GPU Device: {mx.default_device()}")
-                  console.log(f"📦 UMA Allocation: {get_mem():.2f}GB")
+                  out = generate(model, tokenizer, prompt=prompt, max_tokens=300, sampler=make_sampler(temp=0.0))
+                  dur = time.perf_counter() - start
+                  
+                  # Simple verification logic: Check for key fix strings
+                  passed = False
+                  if t["level"] == "L1" and "return False" in out: passed = True
+                  if t["level"] == "L3" and ("if root is None" in out or "if not root" in out): passed = True
+                  if "L2" in t["level"] and ("atomic" in out.lower() or "check" in out.lower()): passed = True
 
-              def agent_loop(self, task_description, code_context):
-                  # Construct a complex agentic prompt
-                  prompt_text = f"TASK: {task_description}\nCODE:\n{code_context}\n\nThink step-by-step, then provide the full corrected code."
-                  messages = [{"role": "user", "content": prompt_text}]
-                  prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                  
-                  console.print(Panel(code_context, title=f"📂 Context: agent_logic.py", border_style="yellow"))
-                  
-                  sampler = make_sampler(temp=0.0) # Zero temp for pure logic
-                  
-                  tic = time.perf_counter()
-                  # High token count to allow for "Thinking"
-                  res = generate(self.model, self.tokenizer, prompt=prompt, max_tokens=600, sampler=sampler, verbose=True)
-                  toc = time.perf_counter()
-                  
-                  tokens = len(self.tokenizer.encode(res))
-                  duration = toc - tic
-                  tps = tokens / duration
-                  
-                  console.rule(f"[bold cyan] {self.role} ANALYTICS [/]")
-                  console.print(f"⏱️  Duration: {duration:.2f}s | 🚀 Speed: {tps:.2f} tok/s | 🎟️ Tokens: {tokens}")
-                  return tps, res
+                  results.append({"level": t["level"], "tps": len(tokenizer.encode(out))/dur, "passed": passed})
+                  console.print(f"[bold]{t['level']}:[/] {'[green]PASS[/]' if passed else '[red]FAIL[/]'} ({results[-1]['tps']:.1f} tok/s)")
 
-          def run():
-              # The "Agentic Challenge": A logic bug in a Binary Search
-              task = "Fix the logic bug. The binary search never finds the target if it is at the end of the list."
-              buggy_code = """
-          def binary_search(arr, target):
-              low = 0
-              high = len(arr) - 1
-              while low < high:  # BUG IS HERE: should be <=
-                  mid = (low + high) // 2
-                  if arr[mid] == target:
-                      return mid
-                  elif arr[mid] < target:
-                      low = mid + 1
-                  else:
-                      high = mid - 1
-              return -1
-              """
-              
-              results = []
-              config = {"Teacher": "${{ inputs.model_teacher_hf }}", "Student": "${{ inputs.model_student_hf }}"}
+              return results
 
-              for role, m_id in config.items():
-                  engine = AgenticEngine(m_id, role)
-                  tps, solution = engine.agent_loop(task, buggy_code)
-                  
-                  # Simple verification: Did it find the '<=' fix?
-                  success = "<=" in solution
-                  results.append((role, m_id.split('/')[-1], tps, success))
-                  
-                  del engine.model
-                  del engine.tokenizer
-                  mx.clear_cache()
-                  console.print(f"🧹 Cache Purged. System clear.")
+          # Execute and display final matrix
+          s_res = run_gauntlet("${{ inputs.model_student_hf }}", "STUDENT")
+          mx.clear_cache()
+          t_res = run_gauntlet("${{ inputs.model_teacher_hf }}", "TEACHER")
 
-              # FINAL SUPREMACY TABLE
-              table = Table(title="🏆 AGENTIC CODING: INTELLIGENCE VS SPEED", border_style="bold green")
-              table.add_column("Rank", justify="center")
-              table.add_column("Engine")
-              table.add_column("Logical Success", justify="center")
-              table.add_column("Speed (tok/s)", justify="right")
-              
-              for i, (role, name, speed, success) in enumerate(sorted(results, key=lambda x: x[2], reverse=True), 1):
-                  status = "[bold green]PASS[/]" if success else "[bold red]FAIL[/]"
-                  table.add_row(str(i), f"{role}", status, f"{speed:.2f}")
-              
-              console.print("\n", table)
+          table = Table(title="📊 AGENTIC GAP ANALYSIS", border_style="magenta")
+          table.add_column("Task Level")
+          table.add_column("Student (0.5B)", justify="center")
+          table.add_column("Teacher (3B)", justify="center")
+          
+          for i in range(len(TASKS)):
+              s_mark = "✅" if s_res[i]["passed"] else "❌"
+              t_mark = "✅" if t_res[i]["passed"] else "❌"
+              table.add_row(TASKS[i]["level"], f"{s_mark} ({s_res[i]['tps']:.1f}t/s)", f"{t_mark} ({t_res[i]['tps']:.1f}t/s)")
 
-          if __name__ == "__main__":
-              run()
+          console.print(table)
           EOF
           python hyper_engine.py
