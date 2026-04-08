@@ -1,11 +1,10 @@
-name: HYPER-MAC-BENCH-V13
+name: HYPER-MAC-BENCH-V14
 on:
   workflow_dispatch:
     inputs:
-      model_teacher_hf:
-        default: 'mlx-community/Qwen2.5-3B-Instruct-4bit'
-      model_student_hf:
-        default: 'mlx-community/Qwen2.5-0.5B-Instruct-4bit'
+      iterations:
+        description: 'Total tests per model'
+        default: '100'
 
 jobs:
   benchmark:
@@ -14,9 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
-      - name: 🛠️ Setup
-        run: pip install --prefer-binary mlx-lm rich psutil
-      - name: 🚀 Launching Gauntlet V13
+      - name: 🚀 Launching Centurion V14
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -25,75 +22,76 @@ jobs:
           from mlx_lm.sample_utils import make_sampler
           from rich.console import Console
           from rich.table import Table
-          import time, json
+          from rich.live import Live
+          import time, json, random
 
           mx.set_default_device(mx.gpu)
           console = Console()
 
-          TESTS = [
-              {
-                  "id": "JSON_STRICT",
-                  "name": "Structured Output",
-                  "desc": "Produce ONLY a minified JSON object with keys 'status' and 'code'.",
-                  "prompt": "Return a minified JSON object with keys 'status' and 'code'. No talk, just JSON.",
-                  "validator": lambda x: json.loads(x.strip()) and "code" in x
-              },
-              {
-                  "id": "REFAC_LOOP",
-                  "name": "Logic Refactoring",
-                  "desc": "Convert a simple for-loop to a while-loop exactly.",
-                  "prompt": "Convert this to a while loop: for i in range(5): print(i)",
-                  "validator": lambda x: "while i < 5:" in x and "i += 1" in x
-              },
-              {
-                  "id": "LONG_RECALL",
-                  "name": "Context Recall",
-                  "desc": "Recall a secret key buried in a wall of text.",
-                  "prompt": "The key is 'BLUE_PANDA'. " + ("filler text " * 50) + " What is the key?",
-                  "validator": lambda x: "BLUE_PANDA" in x.upper()
-              }
-          ]
+          def generate_test_batch(n):
+              batch = []
+              for i in range(n):
+                  test_type = random.choice(["SHADOWING", "JSON_NEST", "LOGIC_GATE"])
+                  if test_type == "SHADOWING":
+                      x, y = random.randint(1, 10), random.randint(11, 20)
+                      batch.append({
+                          "name": f"Shadowing_{i}",
+                          "prompt": f"x={x}; x={y}; def f(): x=100; return x; print(f() + x). What is the result? Just the number.",
+                          "valid": lambda out, y=y: str(100 + y) in out
+                      })
+                  elif test_type == "JSON_NEST":
+                      key = f"key_{random.randint(1,999)}"
+                      batch.append({
+                          "name": f"JSON_{i}",
+                          "prompt": f"Output only valid JSON: {{'data': {{'id': {i}, '{key}': 'val'}}}}",
+                          "valid": lambda out, key=key: key in out and out.strip().startswith("{") and out.strip().endswith("}")
+                      })
+                  else:
+                      batch.append({
+                          "name": f"Logic_{i}",
+                          "prompt": "If A is true and B is false, is (A or B) and (not B) true? Answer YES or NO.",
+                          "valid": lambda out: "YES" in out.upper()
+                      })
+              return batch
 
-          def run_benchmark(model_id, role):
-              console.rule(f"[bold white on red] 🔥 STRESS TEST: {role} [/]")
+          def run_centurion(model_id, role, n):
               model, tokenizer = load(model_id)
-              results = []
-
-              for t in TESTS:
-                  prompt = tokenizer.apply_chat_template(
-                      [{"role": "user", "content": t["prompt"]}],
-                      tokenize=False, add_generation_prompt=True
-                  )
-                  
+              sampler = make_sampler(temp=0.0)
+              tests = generate_test_batch(n)
+              stats = {"pass": 0, "fail": 0, "tps": []}
+              
+              console.rule(f"[bold white] ⚔️ {role} SQUADRON DEPLOYED (N={n}) [/]")
+              
+              for t in tests:
+                  prompt = tokenizer.apply_chat_template([{"role":"user","content":t["prompt"]}], tokenize=False, add_generation_prompt=True)
                   start = time.perf_counter()
-                  out = generate(model, tokenizer, prompt=prompt, max_tokens=200, sampler=make_sampler(temp=0.0))
+                  out = generate(model, tokenizer, prompt=prompt, max_tokens=60, sampler=sampler)
                   dur = time.perf_counter() - start
                   
-                  success = False
-                  try:
-                      success = t["validator"](out)
-                  except:
-                      success = False
+                  success = t["valid"](out)
+                  if success: stats["pass"] += 1
+                  else: stats["fail"] += 1
+                  stats["tps"].append(len(tokenizer.encode(out))/dur)
 
-                  results.append({"id": t["id"], "tps": len(tokenizer.encode(out))/dur, "passed": success, "output": out[:50]})
-                  console.print(f"[bold]{t['name']}:[/] {'[green]PASS[/]' if success else '[red]FAIL[/]'} ({results[-1]['tps']:.1f} t/s)")
+              return stats
 
-              return results
-
-          s_res = run_benchmark("${{ inputs.model_student_hf }}", "STUDENT")
+          N = int("${{ github.event.inputs.iterations }}")
+          s_stats = run_centurion("mlx-community/Qwen2.5-0.5B-Instruct-4bit", "STUDENT", N)
           mx.clear_cache()
-          t_res = run_benchmark("${{ inputs.model_teacher_hf }}", "TEACHER")
+          t_stats = run_centurion("mlx-community/Qwen2.5-3B-Instruct-4bit", "TEACHER", N)
 
-          table = Table(title="💎 AGENTIC CAPABILITY MATRIX (V13)", border_style="cyan")
-          table.add_column("Test Case")
+          table = Table(title=f"📊 CENTURION STRESS TEST (N={N})", border_style="bold green")
+          table.add_column("Metric")
           table.add_column("Student (0.5B)")
           table.add_column("Teacher (3B)")
           
-          for i in range(len(TESTS)):
-              s_status = "✅" if s_res[i]["passed"] else "❌"
-              t_status = "✅" if t_res[i]["passed"] else "❌"
-              table.add_row(TESTS[i]["name"], f"{s_status} {s_res[i]['tps']:.1f}", f"{t_status} {t_res[i]['tps']:.1f}")
-
-          console.print(table)
+          avg_s_tps = sum(s_stats["tps"])/N
+          avg_t_tps = sum(t_stats["tps"])/N
+          
+          table.add_row("Pass Rate (%)", f"{(s_stats['pass']/N)*100:.1f}%", f"{(t_stats['pass']/N)*100:.1f}%")
+          table.add_row("Avg Throughput", f"{avg_s_tps:.1f} t/s", f"{avg_t_tps:.1f} t/s")
+          table.add_row("Failure Count", str(s_stats["fail"]), str(t_stats["fail"]))
+          
+          console.print("\n", table)
           EOF
           python hyper_engine.py
