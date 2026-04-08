@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V31-LINEAR-PASS
+name: HYPER-MAC-BENCH-V32-DISTILL-PROOFER
 on:
   workflow_dispatch:
     inputs:
@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich
-      - name: 🚀 Launching Linear Logic Probe
+      - name: 🚀 Proving the Capability Gap
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -28,37 +28,37 @@ jobs:
 
           TESTS = [
               {
-                  "id": "BASIC_SCOPE_TRANSITION",
-                  "name": "Linear Global Update",
-                  "prompt": "CODE: 'x = 10; def run_update(): global x; x = 20; return x'. \nTASK: What is the result of run_update() and what is the final value of x? \nResult: <return_val, final_x>",
-                  "validator": lambda x: "20, 20" in x
+                  "id": "STATE_FLIP_TRACE",
+                  "name": "Sequential Boolean Logic",
+                  "prompt": "INSTRUCTION: Trace the value of 'power'. \n1. Power starts as OFF. \n2. Flip power. \n3. If power is ON, set it to OFF. Otherwise, set it to ON. \n4. Flip power again. \nWhat is the final state? \nRESULT: <ON/OFF>",
+                  "validator": lambda x: "OFF" in x.upper() and "ON" not in x.upper()[-5:]
               },
               {
-                  "id": "DIRECT_EXECUTION_PATH",
-                  "name": "Computational Efficiency",
-                  "prompt": "SCENARIO: Function A() returns 'Success'. Function B() returns the result of calling A(). \nTASK: To minimize the number of stack frames used, which function should the agent call? \nChoice: <A or B>",
-                  "validator": lambda x: "Choice: A" in x
+                  "id": "ZERO_SHOT_PLANNING",
+                  "name": "Constraint-Based Sorting",
+                  "prompt": "Items: [Apple, Brick, Cloud]. \nTask: Sort them by weight (lightest to heaviest). \nRESULT: <Item, Item, Item>",
+                  "validator": lambda x: "Cloud, Apple, Brick" in x or "Cloud,Apple,Brick" in x
               },
               {
-                  "id": "SYNTAX_PREDICTION",
-                  "name": "Module Integrity",
-                  "prompt": "CODE: 'import sys; sys.non_existent_attribute'. \nWill this specific attribute access raise an AttributeError? \nResult: <Yes/No>",
-                  "validator": lambda x: "Result: Yes" in x
+                  "id": "LOGICAL_INFERENCE",
+                  "name": "Transitive Relationship",
+                  "prompt": "If Group A is bigger than Group B, and Group C is smaller than Group B, which is the smallest group? \nRESULT: <Group>",
+                  "validator": lambda x: "Group C" in x
               }
           ]
 
           def run_benchmark(model_id, role):
-              console.rule(f"[bold white on blue] 🛰️ LINEAR PROBE: {role} [/]")
+              console.rule(f"[bold white on blue] 🛰️ GAP ANALYSIS: {role} [/]")
               model, tokenizer = load(model_id)
               for t in TESTS:
-                  messages = [{"role": "system", "content": "You are a precise Python interpreter. Track state changes line-by-line."},
+                  messages = [{"role": "system", "content": "You are a logical solver. Output only the requested RESULT format."},
                               {"role": "user", "content": t["prompt"]}]
                   prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                  console.print(f"\n[bold green]STRESS TEST: {t['name']}[/]")
-                  output = generate(model, tokenizer, prompt=prompt, max_tokens=300, sampler=make_sampler(temp=0.0))
+                  console.print(f"\n[bold yellow]PROBE: {t['name']}[/]")
+                  output = generate(model, tokenizer, prompt=prompt, max_tokens=200, sampler=make_sampler(temp=0.0))
                   success = t["validator"](output)
-                  console.print(Panel(output, title=f"{role} Trace", border_style="green" if success else "red"))
-                  console.print(f"PASS: {success}")
+                  console.print(Panel(output, title=f"{role} Reasoning", border_style="green" if success else "red"))
+                  console.print(f"VALID: {success}")
 
           run_benchmark("${{ inputs.model_student_hf }}", "STUDENT (0.5B)")
           mx.clear_cache()
