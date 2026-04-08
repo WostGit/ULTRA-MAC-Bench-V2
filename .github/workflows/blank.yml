@@ -1,11 +1,11 @@
-name: HYPER-MAC-BENCH-V20-FP16
+name: HYPER-MAC-BENCH-V21-INT8
 on: 
   workflow_dispatch:
     inputs:
       model_teacher_hf:
-        default: 'mlx-community/Qwen2.5-3B-Instruct-16bit'
+        default: 'mlx-community/Qwen2.5-3B-Instruct-8bit'
       model_student_hf:
-        default: 'mlx-community/Qwen2.5-0.5B-Instruct-16bit'
+        default: 'mlx-community/Qwen2.5-0.5B-Instruct-8bit'
 
 jobs:
   benchmark:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich
-      - name: 🚀 Launching FP16 Precision Test
+      - name: 🚀 Launching INT8 Logic Floor Test
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -33,40 +33,34 @@ jobs:
           TESTS = [
               {
                   "id": "REF_ALIAS",
-                  "name": "Pointer Aliasing (Logic)",
+                  "name": "Pointer Aliasing",
                   "prompt": "Q: a=[10]; b=a; b.append(20); print(a). Think step-by-step. End with 'Result: <list>'.",
-                  "validator": lambda x: "Result: [10, 20]" in x or "[10, 20]" in x.splitlines()[-1]
+                  "validator": lambda x: "[10, 20]" in x.splitlines()[-1] or "Result: [10, 20]" in x
               },
               {
-                  "id": "TIME_MATH",
-                  "name": "Temporal Rollover (Math)",
-                  "prompt": "Q: It is 23:45. What is the time in 20 minutes? Use 24h format. Think step-by-step. End with 'Time: <HH:MM>'.",
+                  "id": "TIME_ROLLOVER",
+                  "name": "Time Rollover",
+                  "prompt": "Q: It is 23:45. What is the time in 20 minutes? Think step-by-step. End with 'Time: <HH:MM>'.",
                   "validator": lambda x: "00:05" in x
-              },
-              {
-                  "id": "STRICT_JSON",
-                  "name": "Constraint Persistence",
-                  "prompt": "Calculate the square root of 144. Output ONLY a valid JSON: {\"result\": value}. No talk.",
-                  "validator": lambda x: '{"result": 12}' in x.replace(" ", "") or '{"result": 12.0}' in x.replace(" ", "")
               }
           ]
 
           def run_benchmark(model_id, role):
-              console.rule(f"[bold yellow] 💎 {role} (FP16): {model_id} [/]")
-              # Explicitly loading in float16
-              model, tokenizer = load(model_id)
+              console.rule(f"[bold magenta] 🧪 {role} (8-bit): {model_id} [/]")
+              try:
+                  model, tokenizer = load(model_id)
+              except Exception as e:
+                  console.print(f"Failed to load {model_id}: {e}")
+                  return []
+
               results = []
               for t in TESTS:
-                  messages = [{"role": "system", "content": "You are a perfect logic engine. Provide exact results."},
+                  messages = [{"role": "system", "content": "You are a precise logic engine."},
                               {"role": "user", "content": t["prompt"]}]
                   prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                  
-                  start = time.perf_counter()
                   out = generate(model, tokenizer, prompt=prompt, max_tokens=300, sampler=make_sampler(temp=0.0))
-                  dur = time.perf_counter() - start
-                  
                   success = t["validator"](out)
-                  results.append({"id": t["id"], "passed": success, "tps": len(tokenizer.encode(out))/dur})
+                  results.append({"id": t["id"], "passed": success})
                   console.print(f"   {t['name']}: {'✅' if success else '❌'}")
               return results
 
@@ -74,10 +68,10 @@ jobs:
           mx.clear_cache()
           t_res = run_benchmark("${{ inputs.model_teacher_hf }}", "TEACHER (3B)")
 
-          table = Table(title="🔬 FP16 PRECISION GAP ANALYSIS", border_style="bold white")
-          table.add_column("Task")
-          table.add_column("0.5B FP16")
-          table.add_column("3B FP16")
+          table = Table(title="🔬 INT8 LOGIC THRESHOLD ANALYSIS", border_style="bold yellow")
+          table.add_column("Logical Task")
+          table.add_column("0.5B (8-bit)")
+          table.add_column("3B (8-bit)")
           for i in range(len(TESTS)):
               table.add_row(TESTS[i]["name"], "✅" if s_res[i]["passed"] else "❌", "✅" if t_res[i]["passed"] else "❌")
           console.print("\n", table)
