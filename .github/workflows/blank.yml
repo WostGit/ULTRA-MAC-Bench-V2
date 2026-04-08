@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V25-FRONTIER-TRAPS
+name: HYPER-MAC-BENCH-V26-AGENTIC-VM
 on: 
   workflow_dispatch:
     inputs:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich
-      - name: 🚀 Launching Frontier Logic Traps
+      - name: 🚀 Launching Agentic VM Gauntlet
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -31,45 +31,45 @@ jobs:
 
           TESTS = [
               {
-                  "id": "MUTUAL_RECURSION_TRAP",
-                  "name": "The Recursive Pointer Swap",
-                  "prompt": "Q: box_a = [1]; box_b = [2]. box_a.append(box_b). box_b.append(box_a). What is the value of box_a[1][1][0]? Think step-by-step. End with 'Result: <number>'.",
-                  "validator": lambda x: "Result: 1" in x
+                  "id": "CLOSURE_TRAP",
+                  "name": "Lexical Scope & Closures",
+                  "prompt": "Analyze this code: 'def outer(): x=10; def inner(): return x; x=20; return inner; fn=outer(); print(fn())'. What is printed? Think like a Python interpreter. Show the state of 'x' at each step. End with 'Result: <number>'.",
+                  "validator": lambda x: "Result: 20" in x
               },
               {
-                  "id": "TEMPORAL_WORMHOLE",
-                  "name": "Non-Euclidean Clock",
-                  "prompt": "Q: On a planet where an hour is 100 minutes, the time is 09:80. What is the time in 45 minutes? Think step-by-step. End with 'Time: <HH:MM>'.",
-                  "validator": lambda x: "10:25" in x
+                  "id": "DECORATOR_STATE",
+                  "name": "Decorator Execution Order",
+                  "prompt": "Code: 'def dec(f): print(1); return f; @dec; def func(): print(2)'. What is printed when this script is run (without calling func())? Think step-by-step. End with 'Result: <number>'.",
+                  "validator": lambda x: "Result: 1" in x and "2" not in x.split("Result:")[-1]
               },
               {
-                  "id": "LOGIC_INVERSION",
-                  "name": "Constraint Reversal",
-                  "prompt": "Q: In a language, 'NOT' means 'YES' and 'YES' means 'NOT'. Does 'NOT NOT YES' mean 'YES'? Think step-by-step. End with 'Result: <YES/NOT>'.",
-                  "validator": lambda x: "Result: NOT" in x
+                  "id": "ASYNC_RACE",
+                  "name": "Sequential Logic Flow",
+                  "prompt": "I have a list `l = [1]`. I define `add = lambda: l.append(2)`. Then I set `l = [3]`. Then I call `add()`. What is the value of the current `l`? Think step-by-step about references. End with 'Result: <list>'.",
+                  "validator": lambda x: "Result: [3]" in x or "[3]" in x.replace(" ", "")
               }
           ]
 
           def run_benchmark(model_id, role):
-              console.rule(f"[bold white on blue] 🕵️ {role} FORENSICS [/]")
+              console.rule(f"[bold white on magenta] 🤖 AGENTIC VM: {role} [/]")
               model, tokenizer = load(model_id)
               
               for t in TESTS:
                   messages = [
-                      {"role": "system", "content": "You are a state-tracking logic machine. Break every complex object into its atomic components before concluding."},
+                      {"role": "system", "content": "You are a Python Bytecode Interpreter. Trace the execution of the code line-by-line, tracking the stack and heap memory."},
                       {"role": "user", "content": t["prompt"]}
                   ]
                   prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                   
-                  console.print(f"\n[bold yellow]TASK: {t['name']}[/]")
+                  console.print(f"\n[bold green]VM TASK: {t['name']}[/]")
                   start = time.perf_counter()
                   output = generate(model, tokenizer, prompt=prompt, max_tokens=800, sampler=make_sampler(temp=0.0))
                   dur = time.perf_counter() - start
                   
                   success = t["validator"](output)
-                  color = "green" if success else "red"
+                  color = "bright_blue" if success else "bright_red"
                   
-                  console.print(Panel(output, title=f"{role} Reasoning", border_style=color))
+                  console.print(Panel(output, title=f"{role} Trace Log", border_style=color))
                   console.print(f"TPS: {len(tokenizer.encode(output))/dur:.2f} | PASS: {success}")
                   console.print("-" * 60)
 
