@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V21-INT8
+name: HYPER-MAC-BENCH-V22-LOGIC-TRAP
 on: 
   workflow_dispatch:
     inputs:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich
-      - name: 🚀 Launching INT8 Logic Floor Test
+      - name: 🚀 Launching Zero-Recall Gauntlet
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -32,33 +32,40 @@ jobs:
 
           TESTS = [
               {
-                  "id": "REF_ALIAS",
-                  "name": "Pointer Aliasing",
-                  "prompt": "Q: a=[10]; b=a; b.append(20); print(a). Think step-by-step. End with 'Result: <list>'.",
-                  "validator": lambda x: "[10, 20]" in x.splitlines()[-1] or "Result: [10, 20]" in x
+                  "id": "NON_TRIVIAL_ALIAS",
+                  "name": "Nested Reference Trap",
+                  "prompt": "Q: data = {'a': [1], 'b': [1]}; data['b'] = data['a']; data['a'].append(2); print(data['b']). Think step-by-step. End with 'Result: <list>'.",
+                  "validator": lambda x: "Result: [1, 2]" in x or "[1, 2]" in x.splitlines()[-1]
               },
               {
-                  "id": "TIME_ROLLOVER",
-                  "name": "Time Rollover",
-                  "prompt": "Q: It is 23:45. What is the time in 20 minutes? Think step-by-step. End with 'Time: <HH:MM>'.",
-                  "validator": lambda x: "00:05" in x
+                  "id": "DIRTY_TIME",
+                  "name": "Non-Standard Time",
+                  "prompt": "Q: A timer starts at 22:50 and runs for 85 minutes. What is the 24h time when it finishes? Think step-by-step. End with 'Time: <HH:MM>'.",
+                  "validator": lambda x: "00:15" in x
+              },
+              {
+                  "id": "OBJ_IDENTITY",
+                  "name": "Identity vs Value",
+                  "prompt": "Q: x = [5]; y = [5]; print(x is y). Provide ONLY the boolean result.",
+                  "validator": lambda x: "False" in x
+              },
+              {
+                  "id": "REVERSE_STEP",
+                  "name": "Step-Logic Reasoning",
+                  "prompt": "Q: If I have 3 apples and you take away 2, how many apples do YOU have? Provide ONLY the number.",
+                  "validator": lambda x: "2" in x.strip() and "1" not in x.strip()[:2]
               }
           ]
 
           def run_benchmark(model_id, role):
-              console.rule(f"[bold magenta] 🧪 {role} (8-bit): {model_id} [/]")
-              try:
-                  model, tokenizer = load(model_id)
-              except Exception as e:
-                  console.print(f"Failed to load {model_id}: {e}")
-                  return []
-
+              console.rule(f"[bold white on blue] 🕵️ PROBING {role} (8-bit) [/]")
+              model, tokenizer = load(model_id)
               results = []
               for t in TESTS:
-                  messages = [{"role": "system", "content": "You are a precise logic engine."},
+                  messages = [{"role": "system", "content": "You are a literalist logic engine. Ignore common patterns; compute the specific state."},
                               {"role": "user", "content": t["prompt"]}]
                   prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                  out = generate(model, tokenizer, prompt=prompt, max_tokens=300, sampler=make_sampler(temp=0.0))
+                  out = generate(model, tokenizer, prompt=prompt, max_tokens=400, sampler=make_sampler(temp=0.0))
                   success = t["validator"](out)
                   results.append({"id": t["id"], "passed": success})
                   console.print(f"   {t['name']}: {'✅' if success else '❌'}")
@@ -68,10 +75,10 @@ jobs:
           mx.clear_cache()
           t_res = run_benchmark("${{ inputs.model_teacher_hf }}", "TEACHER (3B)")
 
-          table = Table(title="🔬 INT8 LOGIC THRESHOLD ANALYSIS", border_style="bold yellow")
-          table.add_column("Logical Task")
-          table.add_column("0.5B (8-bit)")
-          table.add_column("3B (8-bit)")
+          table = Table(title="🔬 ZERO-RECALL LOGIC MATRIX", border_style="bold red")
+          table.add_column("Task")
+          table.add_column("0.5B (Recall)")
+          table.add_column("3B (Reasoning)")
           for i in range(len(TESTS)):
               table.add_row(TESTS[i]["name"], "✅" if s_res[i]["passed"] else "❌", "✅" if t_res[i]["passed"] else "❌")
           console.print("\n", table)
