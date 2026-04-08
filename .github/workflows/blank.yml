@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V7
+name: HYPER-MAC-BENCH-V8
 on:
   workflow_dispatch:
     inputs:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich psutil
-      - name: 🚀 Launching God-Mode V7
+      - name: 🚀 Launching God-Mode V8
         shell: bash
         env:
           HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
@@ -32,18 +32,7 @@ jobs:
 
           console = Console()
 
-          def get_clean_telemetry():
-              # Quietly probe system metrics
-              def probe(cmd):
-                  try:
-                      return subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
-                  except: return "N/A"
-              
-              mem = psutil.virtual_memory()
-              thermal = probe(["sysctl", "-n", "machdep.xcpu.thermal_level"])
-              return f"RAM: {mem.percent}% | Thermal State: {thermal}"
-
-          class UltimateEngine:
+          class StableEngine:
               def __init__(self, model_id, role):
                   self.role = role
                   console.rule(f"[bold white on red] ⚡ CORE IGNITION: {role.upper()} [/]")
@@ -51,60 +40,56 @@ jobs:
                   start = time.perf_counter()
                   self.model, self.tokenizer = load(model_id)
                   self.load_time = time.perf_counter() - start
-                  console.log(f"[bold green]✓[/] Weights Locked & Loaded in {self.load_time:.2f}s")
+                  console.log(f"[bold green]✓[/] Weights Locked in {self.load_time:.2f}s")
 
               def execute(self, prompt):
-                  console.print(Panel(f"[bold cyan]INPUT >[/] {prompt}", title="📥 Instruction Buffer", border_style="cyan"))
+                  console.print(Panel(f"[bold cyan]INPUT >[/] {prompt}", title="📥 Instruction Buffer"))
                   
-                  # Verbose=True outputs the standard MLX stats block we saw in your logs
-                  # We'll use low temp to kill the repetition bug
                   tic = time.perf_counter()
+                  # MLX-LM v0.20+ uses 'temp' inside the call but some versions 
+                  # prefer it passed via a sampler or specific keyword logic.
+                  # To be safe and verbose, we use the most standard current kwargs.
                   res = generate(
                       self.model, 
                       self.tokenizer, 
                       prompt=prompt, 
                       max_tokens=256, 
-                      temp=0.1, 
+                      temp=0.1,  # Lowering temp to 0.1 to kill loops
                       verbose=True
                   )
                   toc = time.perf_counter()
                   
                   duration = toc - tic
                   tokens = len(self.tokenizer.encode(res))
-                  tps = tokens / duration
+                  tps = tokens / duration if duration > 0 else 0
                   
-                  console.print(f"\n[bold gold1]📊 REAL-TIME THROUGHPUT >[/] [bold green]{tps:.2f} tokens/s[/]")
+                  console.print(f"\n[bold gold1]📊 THROUGHPUT >[/] [bold green]{tps:.2f} tokens/s[/]")
                   return tps
 
           def run():
               results = []
-              config = {
-                  "Teacher": "${{ inputs.model_teacher_hf }}",
-                  "Student": "${{ inputs.model_student_hf }}"
-              }
+              config = {"Teacher": "${{ inputs.model_teacher_hf }}", "Student": "${{ inputs.model_student_hf }}"}
 
               for role, m_id in config.items():
-                  engine = UltimateEngine(m_id, role)
-                  tps = engine.execute("Fix the syntax error: def test(): print('hi'")
-                  results.append((role, m_id.split('/')[-1], tps))
-                  
-                  # Cleanup
-                  del engine.model
-                  del engine.tokenizer
-                  mx.metal.clear_cache()
-                  console.log(f"[dim]Purge Complete. System Health: {get_clean_telemetry()}[/]")
+                  try:
+                      engine = StableEngine(m_id, role)
+                      tps = engine.execute("Fix the syntax error: def test(): print('hi'")
+                      results.append((role, m_id.split('/')[-1], tps))
+                      
+                      del engine.model
+                      del engine.tokenizer
+                      mx.metal.clear_cache()
+                  except Exception as e:
+                      console.log(f"[bold red]❌ ERROR IN {role}:[/] {e}")
 
-              # FINAL SUPREMACY TABLE
-              table = Table(title="\n🏆 MAC-SILICON SUPREMACY RANKINGS", header_style="bold magenta", border_style="bright_blue")
+              table = Table(title="\n🏆 MAC-SILICON SUPREMACY RANKINGS", border_style="bright_blue")
               table.add_column("Rank", justify="center")
-              table.add_column("Engine Role")
-              table.add_column("Model Identifier")
-              table.add_column("Inference Velocity", justify="right")
+              table.add_column("Engine")
+              table.add_column("Speed", justify="right")
               
-              # Sort by speed descending
               sorted_res = sorted(results, key=lambda x: x[2], reverse=True)
               for i, (role, name, speed) in enumerate(sorted_res, 1):
-                  table.add_row(str(i), role, name, f"{speed:.2f} tok/s")
+                  table.add_row(str(i), f"{role} ({name})", f"{speed:.2f} tok/s")
               
               console.print(table)
 
