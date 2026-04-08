@@ -1,9 +1,9 @@
-name: HYPER-MAC-BENCH-V14-CENTURION
+name: HYPER-MAC-BENCH-V15-CENTURION
 on:
   workflow_dispatch:
     inputs:
       iterations:
-        description: 'Total tests per model (Goal: 100)'
+        description: 'Number of agentic tests'
         default: '100'
 
 jobs:
@@ -17,20 +17,18 @@ jobs:
         with:
           python-version: '3.12'
           
-      - name: 🛠️ Native MLX Installation
+      - name: 🛠️ Native arm64 Setup
         run: |
-          # Use the explicit python3 -m pip to ensure the library attaches to the active interpreter
+          # Force installation into the active interpreter
           python3 -m pip install --upgrade pip
           python3 -m pip install --prefer-binary mlx-lm mlx rich psutil
           
-          # Pre-flight check: If these fail, the workflow stops here
-          echo "--- Hardware Check ---"
-          sysctl -n machdep.cpu.brand_string
-          echo "--- Dependency Check ---"
-          python3 -c "import mlx.core as mx; print(f'MLX Status: OK (Device: {mx.default_device()})')"
-          python3 -c "import mlx_lm; print('MLX-LM Status: OK')"
+          # Verification Step
+          echo "--- Environment Check ---"
+          python3 -c "import mlx.core as mx; print(f'MLX OK | Device: {mx.default_device()}')"
+          python3 -c "import mlx_lm; print('MLX-LM OK')"
 
-      - name: ⚔️ Launch Centurion V14
+      - name: ⚔️ Execute Centurion Benchmark
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -39,93 +37,70 @@ jobs:
           from mlx_lm.sample_utils import make_sampler
           from rich.console import Console
           from rich.table import Table
-          import time, json, random, psutil
+          import time, json, random
 
-          # Force Metal GPU acceleration
           mx.set_default_device(mx.gpu)
           console = Console()
 
           def generate_test_batch(n):
               batch = []
               for i in range(n):
-                  test_type = random.choice(["SHADOWING", "JSON_NEST", "LOGIC_GATE"])
-                  if test_type == "SHADOWING":
-                      x, y = random.randint(1, 10), random.randint(11, 20)
+                  t_type = random.choice(["SCOPE", "JSON", "LOGIC"])
+                  if t_type == "SCOPE":
+                      val = random.randint(50, 150)
                       batch.append({
-                          "name": f"Shadowing_{i}",
-                          "prompt": f"x={x}; x={y}; def f(): x=100; return x; print(f() + x). What is the result? Just the number.",
-                          "valid": lambda out, y=y: str(100 + y) in out
+                          "name": f"Scope_{i}",
+                          "prompt": f"x=10; def check(): x={val}; return x; result = check() + x; print(result). What is the output? Just the number.",
+                          "valid": lambda out, v=val: str(v + 10) in out
                       })
-                  elif test_type == "JSON_NEST":
-                      key = f"key_{random.randint(1,999)}"
+                  elif t_type == "JSON":
                       batch.append({
                           "name": f"JSON_{i}",
-                          "prompt": f"Output only valid minified JSON: {{'data': {{'id': {i}, '{key}': 'val'}}}} No prose.",
-                          "valid": lambda out, key=key: key in out and out.strip().startswith("{") and out.strip().endswith("}")
+                          "prompt": f"Output only minified JSON: {{'id': {i}, 'status': 'active'}}. No prose.",
+                          "valid": lambda out: out.strip().startswith("{") and '"id":' in out
                       })
                   else:
                       batch.append({
                           "name": f"Logic_{i}",
-                          "prompt": "If A is true and B is false, is (A or B) and (not B) true? Answer YES or NO.",
+                          "prompt": "If all A are B, and C is A, is C a B? Answer YES or NO.",
                           "valid": lambda out: "YES" in out.upper()
                       })
               return batch
 
-          def run_centurion(model_id, role, n):
-              console.rule(f"[bold white on blue] ⚡ DEPLOYING {role} SQUADRON [/]")
+          def run_squadron(model_id, role, n):
+              console.rule(f"[bold white] ⚔️ {role} SQUADRON DEPLOYED [/]")
               model, tokenizer = load(model_id)
               sampler = make_sampler(temp=0.0)
               tests = generate_test_batch(n)
-              stats = {"pass": 0, "fail": 0, "tps": []}
+              stats = {"pass": 0, "tps": []}
               
               for idx, t in enumerate(tests):
-                  # Standard Chat Template for Qwen2.5
                   messages = [{"role": "user", "content": t["prompt"]}]
                   prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                   
                   start = time.perf_counter()
-                  out = generate(model, tokenizer, prompt=prompt, max_tokens=100, sampler=sampler, verbose=False)
+                  out = generate(model, tokenizer, prompt=prompt, max_tokens=50, sampler=sampler, verbose=False)
                   dur = time.perf_counter() - start
                   
-                  success = False
-                  try:
-                      success = t["valid"](out)
-                  except:
-                      success = False
-
-                  if success: stats["pass"] += 1
-                  else: stats["fail"] += 1
+                  if t["valid"](out): stats["pass"] += 1
+                  stats["tps"].append(len(tokenizer.encode(out))/dur if dur > 0 else 0)
                   
-                  tokens = len(tokenizer.encode(out))
-                  stats["tps"].append(tokens/dur if dur > 0 else 0)
-                  
-                  if (idx + 1) % 10 == 0:
-                      console.log(f"[dim]{role} Progress: {idx+1}/{n} | Current Pass Rate: {(stats['pass']/(idx+1))*100:.1f}%[/]")
+                  if (idx + 1) % 20 == 0:
+                      console.log(f"[dim]{role} Heartbeat: {idx+1}/{n} | Accuracy: {(stats['pass']/(idx+1))*100:.1f}%[/]")
 
               return stats
 
           N = int("${{ github.event.inputs.iterations }}")
-          
-          # Run Student
-          s_stats = run_centurion("mlx-community/Qwen2.5-0.5B-Instruct-4bit", "STUDENT", N)
+          s_res = run_squadron("mlx-community/Qwen2.5-0.5B-Instruct-4bit", "STUDENT", N)
           mx.clear_cache()
-          
-          # Run Teacher
-          t_stats = run_centurion("mlx-community/Qwen2.5-3B-Instruct-4bit", "TEACHER", N)
+          t_res = run_squadron("mlx-community/Qwen2.5-3B-Instruct-4bit", "TEACHER", N)
 
-          # Results Table
-          table = Table(title=f"🏆 AGENTIC CENTURION BENCHMARK (N={N})", border_style="bold green")
-          table.add_column("Metric", style="cyan")
-          table.add_column("Student (0.5B)", justify="center")
-          table.add_column("Teacher (3B)", justify="center")
-          
-          avg_s_tps = sum(s_stats["tps"])/N
-          avg_t_tps = sum(t_stats["tps"])/N
-          
-          table.add_row("Pass Rate (%)", f"{(s_stats['pass']/N)*100:.1f}%", f"{(t_stats['pass']/N)*100:.1f}%")
-          table.add_row("Avg Throughput", f"{avg_s_tps:.1f} t/s", f"{avg_t_tps:.1f} t/s")
-          table.add_row("Failures", str(s_stats["fail"]), str(t_stats["fail"]))
-          
+          table = Table(title=f"📊 AGENTIC STRESS TEST (N={N})", border_style="bold green")
+          table.add_column("Metric")
+          table.add_column("Student (0.5B)")
+          table.add_column("Teacher (3B)")
+          table.add_row("Accuracy (%)", f"{(s_res['pass']/N)*100:.1f}%", f"{(t_res['pass']/N)*100:.1f}%")
+          table.add_row("Avg Speed", f"{sum(s_res['tps'])/N:.1f} t/s", f"{sum(t_res['tps'])/N:.1f} t/s")
           console.print("\n", table)
           EOF
           python3 hyper_engine.py
