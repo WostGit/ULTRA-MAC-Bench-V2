@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V14
+name: HYPER-MAC-BENCH-V15
 on: 
   workflow_dispatch:
     inputs:
@@ -16,7 +16,7 @@ jobs:
         with: {python-version: '3.12'}
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich psutil
-      - name: 🚀 Launching Agentic Gauntlet V14
+      - name: 🚀 Launching Chain-of-Thought Gauntlet
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -25,51 +25,44 @@ jobs:
           from mlx_lm.sample_utils import make_sampler
           from rich.console import Console
           from rich.table import Table
-          import time, json, re
+          import time
 
           mx.set_default_device(mx.gpu)
           console = Console()
 
+          # Agentic Tasks focus on Reasoning and Pythonic Idioms
           TESTS = [
               {
-                  "id": "STATE_TRACK",
-                  "name": "State Management",
-                  "desc": "Track XY coordinates through a sequence of moves.",
-                  "prompt": "You are at (0,0). Move 'up', 'up', 'right', then 'down'. Return ONLY a JSON object: {\"x\": x, \"y\": y}",
-                  "validator": lambda x: '"x": 1' in x.replace(" ", "") and '"y": 1' in x.replace(" ", "")
+                  "id": "RECURSION",
+                  "name": "Recursive Logic",
+                  "prompt": "Write a recursive Python function for factorial(n). Think step-by-step, then provide ONLY the code in a markdown block.",
+                  "validator": lambda x: "def factorial" in x and "factorial(n-1)" in x
               },
               {
-                  "id": "DEBUG_OBO",
-                  "name": "Off-By-One Debug",
-                  "desc": "Identify and fix a standard indexing error.",
-                  "prompt": "Fix the bug in this Python line: `for i in range(len(arr)): print(arr[i+1])`. Provide ONLY the corrected line.",
-                  "validator": lambda x: "len(arr) - 1" in x or "range(1, len" in x
+                  "id": "LIST_COMP",
+                  "name": "Refactoring",
+                  "prompt": "Convert this to a list comprehension: 'out = []; for x in data: if x > 5: out.append(x*2)'. Think step-by-step, then provide ONLY the result on the last line.",
+                  "validator": lambda x: "x*2 for x in data if x > 5" in x.splitlines()[-1]
               },
               {
-                  "id": "TOOL_MAP",
-                  "name": "Tool Orchestration",
-                  "desc": "Map intent to multi-parameter function calls.",
-                  "prompt": "Tools: `get_weather(city)`, `send_msg(to, text)`. Goal: Tell Bob in NYC it is sunny. Output tool call only.",
-                  "validator": lambda x: "send_msg" in x and "Bob" in x and "sunny" in x
+                  "id": "DE_MORGAN",
+                  "name": "Boolean Logic",
+                  "prompt": "Simplify: NOT (A AND B). Think step-by-step, then provide the result using 'OR' on the final line.",
+                  "validator": lambda x: "NOT A OR NOT B" in x.splitlines()[-1].upper() or "!A || !B" in x.splitlines()[-1]
               },
               {
-                  "id": "STRICT_NEG",
-                  "name": "Negative Constraint",
-                  "desc": "Follow formatting while avoiding a specific character ('e').",
-                  "prompt": "Summarize 'The sky is blue' in 5 words. CRITICAL: Do NOT use the letter 'e' in your response.",
-                  "validator": lambda x: "e" not in x.lower() and len(x.strip()) > 5
+                  "id": "AGENT_COORD",
+                  "name": "Spatial Reasoning",
+                  "prompt": "You are at (0,0). Move 'up' (+1y), 'up', 'right' (+1x), then 'down' (-1y). Think step-by-step, then provide the final [x,y] on the last line.",
+                  "validator": lambda x: "1,1" in x.splitlines()[-1] or "1, 1" in x.splitlines()[-1]
               }
           ]
 
           def run_benchmark(model_id, role):
               console.rule(f"[bold white on blue] 🤖 TESTING {role}: {model_id} [/]")
-              try:
-                  model, tokenizer = load(model_id)
-              except Exception as e:
-                  console.print(f"Failed to load {model_id}: {e}")
-                  return []
-              
+              model, tokenizer = load(model_id)
               results = []
+              
               for t in TESTS:
                   prompt = tokenizer.apply_chat_template(
                       [{"role": "user", "content": t["prompt"]}],
@@ -77,7 +70,8 @@ jobs:
                   )
                   
                   start = time.perf_counter()
-                  out = generate(model, tokenizer, prompt=prompt, max_tokens=150, sampler=make_sampler(temp=0.0))
+                  # High max_tokens to allow for 'thinking'
+                  out = generate(model, tokenizer, prompt=prompt, max_tokens=300, sampler=make_sampler(temp=0.0))
                   dur = time.perf_counter() - start
                   
                   success = False
@@ -86,9 +80,9 @@ jobs:
                   except:
                       success = False
                       
-                  results.append({"id": t["id"], "tps": len(tokenizer.encode(out))/dur, "passed": success, "output": out.strip()})
+                  results.append({"id": t["id"], "tps": len(tokenizer.encode(out))/dur, "passed": success})
                   status = "[green]PASS[/]" if success else "[red]FAIL[/]"
-                  console.print(f"   {t['name']}: {status} ({results[-1]['tps']:.1f} t/s)")
+                  console.print(f"   {t['name']}: {status}")
               
               return results
 
@@ -96,19 +90,15 @@ jobs:
           mx.clear_cache()
           t_res = run_benchmark("${{ inputs.model_teacher_hf }}", "TEACHER (3B)")
 
-          table = Table(title="📊 LITERATURE-BASED CAPABILITY MATRIX", border_style="magenta")
-          table.add_column("Agentic Task", style="cyan")
-          table.add_column("Student (0.5B) Result")
-          table.add_column("Teacher (3B) Result")
+          table = Table(title="💎 AGENTIC REASONING MATRIX", border_style="bright_yellow")
+          table.add_column("Task")
+          table.add_column("Student (0.5B)")
+          table.add_column("Teacher (3B)")
 
           for i in range(len(TESTS)):
-              s_mark = "✅" if s_res[i]["passed"] else "❌"
-              t_mark = "✅" if t_res[i]["passed"] else "❌"
-              table.add_row(
-                  TESTS[i]["name"], 
-                  f"{s_mark} ({s_res[i]['tps']:.0f} t/s)", 
-                  f"{t_mark} ({t_res[i]['tps']:.0f} t/s)"
-              )
+              s_status = "✅" if s_res[i]["passed"] else "❌"
+              t_status = "✅" if t_res[i]["passed"] else "❌"
+              table.add_row(TESTS[i]["name"], s_status, t_status)
           
           console.print("\n", table)
           EOF
