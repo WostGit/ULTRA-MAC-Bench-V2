@@ -1,4 +1,4 @@
-name: HYPER-MAC-BENCH-V32-DISTILL-PROOFER
+name: HYPER-MAC-BENCH-V34-ULTRA-SABOTAGE
 on:
   workflow_dispatch:
     inputs:
@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: 🛠️ Setup
         run: pip install --prefer-binary mlx-lm rich
-      - name: 🚀 Proving the Capability Gap
+      - name: 🚀 Launching Ultra-Verbose Sabotage Probe
         shell: bash
         run: |
           cat > hyper_engine.py << 'EOF'
@@ -28,37 +28,40 @@ jobs:
 
           TESTS = [
               {
-                  "id": "STATE_FLIP_TRACE",
-                  "name": "Sequential Boolean Logic",
-                  "prompt": "INSTRUCTION: Trace the value of 'power'. \n1. Power starts as OFF. \n2. Flip power. \n3. If power is ON, set it to OFF. Otherwise, set it to ON. \n4. Flip power again. \nWhat is the final state? \nRESULT: <ON/OFF>",
-                  "validator": lambda x: "OFF" in x.upper() and "ON" not in x.upper()[-5:]
+                  "id": "SEMANTIC_INVERSION",
+                  "name": "The 'Not' Logic Trap",
+                  "prompt": "CODE: 'is_ready = False; status = not is_ready; result = not not status'. \nTASK: Step 1: Evaluate is_ready. Step 2: Evaluate status. Step 3: Evaluate result. \nExplain each step ultra-verbosely. \nRESULT: <True/False>",
+                  "validator": lambda x: "RESULT: True" in x.upper()
               },
               {
-                  "id": "ZERO_SHOT_PLANNING",
-                  "name": "Constraint-Based Sorting",
-                  "prompt": "Items: [Apple, Brick, Cloud]. \nTask: Sort them by weight (lightest to heaviest). \nRESULT: <Item, Item, Item>",
-                  "validator": lambda x: "Cloud, Apple, Brick" in x or "Cloud,Apple,Brick" in x
+                  "id": "VARIABLE_SABOTAGE",
+                  "name": "Nominal vs Functional Value",
+                  "prompt": "CODE: 'zero = 1; one = 0; sum = zero + zero'. \nTASK: Ignore the names of the variables. Trace the integer assignments. What is the value of 'sum'? \nExplain your math ultra-verbosely. \nRESULT: <Number>",
+                  "validator": lambda x: "RESULT: 2" in x
               },
               {
-                  "id": "LOGICAL_INFERENCE",
-                  "name": "Transitive Relationship",
-                  "prompt": "If Group A is bigger than Group B, and Group C is smaller than Group B, which is the smallest group? \nRESULT: <Group>",
-                  "validator": lambda x: "Group C" in x
+                  "id": "PREREQUISITE_INVERSION",
+                  "name": "Non-Linear Dependency",
+                  "prompt": "SCENARIO: To drink Water, you need a Cup. To get a Cup, you need to open the Cabinet. BUT, the Water is currently frozen in a Block of Ice. \nTASK: List the steps to drink the water, starting with the ICE. \nExplain the thermodynamic requirement ultra-verbosely. \nRESULT: <List Steps>",
+                  "validator": lambda x: "MELT" in x.upper() or "HEAT" in x.upper()
               }
           ]
 
           def run_benchmark(model_id, role):
-              console.rule(f"[bold white on blue] 🛰️ GAP ANALYSIS: {role} [/]")
+              console.rule(f"[bold white on blue] 🛰️ ULTRA-VERBOSE GAP ANALYSIS: {role} [/]")
               model, tokenizer = load(model_id)
               for t in TESTS:
-                  messages = [{"role": "system", "content": "You are a logical solver. Output only the requested RESULT format."},
+                  messages = [{"role": "system", "content": "You are a hyper-analytical trace engine. You provide exhaustive, step-by-step reasoning for every operation. You prioritize literal values over variable names."},
                               {"role": "user", "content": t["prompt"]}]
                   prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                  console.print(f"\n[bold yellow]PROBE: {t['name']}[/]")
-                  output = generate(model, tokenizer, prompt=prompt, max_tokens=200, sampler=make_sampler(temp=0.0))
+                  console.print(f"\n[bold yellow]🔥 ULTRA-STRESS: {t['name']}[/]")
+                  
+                  # Higher max_tokens for verbose reasoning
+                  output = generate(model, tokenizer, prompt=prompt, max_tokens=600, sampler=make_sampler(temp=0.0))
+                  
                   success = t["validator"](output)
-                  console.print(Panel(output, title=f"{role} Reasoning", border_style="green" if success else "red"))
-                  console.print(f"VALID: {success}")
+                  console.print(Panel(output, title=f"{role} Internal Monologue", border_style="green" if success else "red"))
+                  console.print(f"PASS: {success}")
 
           run_benchmark("${{ inputs.model_student_hf }}", "STUDENT (0.5B)")
           mx.clear_cache()
